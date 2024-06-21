@@ -1,1 +1,219 @@
-a
+import os
+import geopandas as gpd
+import pandas as pd
+import logging
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+from shapely.geometry import LineString, Point
+import shapely
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
+
+def select_file():
+    """Open a file dialog to select an SOS file."""
+    Tk().withdraw()  # Hide the main Tkinter window
+    filepath = askopenfilename(
+        filetypes=[("SOS files", "*.sos"), ("All files", "*.*")],
+        title="Select the SOS file"
+    )
+    return filepath
+
+def convert_to_2d(geometry):
+    """Convert geometry to 2D by dropping the Z dimension."""
+    if geometry.has_z:
+        return shapely.wkb.loads(shapely.wkb.dumps(geometry, output_dimension=2))
+    return geometry
+
+# Adjust distance calculation by the `.SOS` unit factor
+unit_factor = 0.0001
+
+def find_nearby_lines(gdf, buffer_distance=1, batch_size=500):
+    """Identify lines where any endpoint is within a given buffer distance from another line's endpoints, excluding lines that share endpoints exactly or have KP = 1."""
+    logger.info(f"Total feature objects to process: {len(gdf)}")
+
+    # Adjust buffer distance to the .SOS unit factor
+    adjusted_buffer_distance = buffer_distance / unit_factor
+
+    # Prepare to collect indices of nearby lines
+    nearby_indices = set()
+
+    # Create a spatial index
+    sindex = gdf.sindex
+
+    total = len(gdf)
+    for idx, row in gdf.iterrows():
+        row_geom = row.geometry
+        row_objtype = row.OBJTYPE  # Get the OBJTYPE of the current geometry
+        row_endpoints = [Point(row_geom.coords[0]), Point(row_geom.coords[-1])]
+        row_kp = row.get('KP', None)
+
+        # Check each endpoint
+        for endpoint in row_endpoints:
+            # Create a buffer around the endpoint
+            buffer = endpoint.buffer(adjusted_buffer_distance)
+
+            # Find possible matches using the spatial index
+            possible_matches_index = list(sindex.intersection(buffer.bounds))
+            possible_matches = gdf.iloc[possible_matches_index]
+
+            for other_idx, other_row in possible_matches.iterrows():
+                if idx != other_idx and row_objtype == other_row.OBJTYPE:  # Check if OBJTYPE matches
+                    other_geom = other_row.geometry
+                    other_endpoints = [Point(other_geom.coords[0]), Point(other_geom.coords[-1])]
+                    other_kp = other_row.get('KP', None)
+
+                    # Calculate distances and check if within buffer distance
+                    min_distance = min(endpoint.distance(other_endpoint)
+                                       for other_endpoint in other_endpoints)
+                    if min_distance < adjusted_buffer_distance:
+                        # Check if endpoints exactly match
+                        shared_endpoint = any(endpoint.equals(other_endpoint) for other_endpoint in other_endpoints)
+                        
+                        # Check KP values
+                        if shared_endpoint or (row_kp == '1' and other_kp == '1'):
+                            continue
+                        
+                        nearby_indices.add(idx)
+                        nearby_indices.add(other_idx)
+                        #logger.debug(f"Line {idx} and Line {other_idx} (OBJTYPE: {row_objtype}) are within {buffer_distance} meters. Distance: {min_distance * unit_factor} meters")
+
+        # Log progress in batches
+        if (idx + 1) % batch_size == 0:
+            logger.info(f"Processed {idx + 1}/{total} feature objects.")
+
+    nearby_rows = gdf.loc[list(nearby_indices)]
+    logger.info(f"Number of nearby rows found: {len(nearby_rows)}")
+    return nearby_rows.reset_index(drop=True)
+
+
+def generate_sosi_file(nearby_rows, original_filepath, output_filepath):
+    """Generate a new SOS file with the header and specific geometries based on LOKALID."""
+    # Extract LOKALIDs from the nearby rows
+    lokalid_set = set(nearby_rows['LOKALID'].str.strip('"'))
+    logger.debug(f"LOKALIDs to copy: {lokalid_set}")
+
+    # Read the original file
+    with open(original_filepath, 'r', encoding='UTF-8') as original_file:
+        lines = original_file.readlines()
+
+    # Identify the header, stop after the first geometric object
+    header_lines = []
+    header_end_index = 0
+    for i, line in enumerate(lines):
+        header_lines.append(line)
+        if any(line.startswith(prefix) for prefix in [".KURVE", ".PUNKT", ".FLATE"]):
+            header_end_index = i
+            break
+
+    logger.debug(f"Header identified up to index {header_end_index}")
+
+    # Create a list to hold the captured geometries
+    captured_blocks = []
+
+    # Function to capture a geometry block
+    def capture_block(start_index):
+        """Capture a complete geometry block from the SOS file starting at `start_index`."""
+        current_block = []
+        capturing = False  # Flag to start capturing
+        for k in range(start_index, len(lines)):
+            line = lines[k]
+            # Start capturing after the first line
+            if not capturing and any(line.startswith(prefix) for prefix in [".KURVE", ".PUNKT", ".FLATE"]):
+                capturing = True
+            # Stop capturing at the start of the next block or .SLUTT
+            elif capturing and (k != start_index and (any(line.startswith(prefix) for prefix in [".KURVE", ".PUNKT", ".FLATE"]) or line.strip() == ".SLUTT")):
+                break
+            current_block.append(line)
+        return current_block
+
+    # Scan for each LOKALID and extract the full geometry block
+    for lokalid in lokalid_set:
+        found = False
+        for i in range(header_end_index, len(lines)):
+            if lokalid in lines[i]:
+                # Move upwards to find the start of the block
+                for j in range(i, header_end_index, -1):
+                    if any(lines[j].startswith(prefix) for prefix in [".KURVE", ".PUNKT", ".FLATE"]):
+                        start_index = j
+                        block = capture_block(start_index)
+                        captured_blocks.append(block)
+                        found = True
+                        break
+                if found:
+                    break
+        else:
+            logger.warning(f"LOKALID {lokalid} not found in the original file.")
+    
+    logger.debug(f"Captured blocks: {len(captured_blocks)}")
+
+    # Write to the new .SOS file
+    with open(output_filepath, 'w', encoding='UTF-8') as new_sosi_file:
+        # Write the header
+        new_sosi_file.writelines(header_lines)
+
+        # Write the filtered geometries
+        for block in captured_blocks:
+            new_sosi_file.writelines(block)
+
+        # Write the footer
+        new_sosi_file.write(".SLUTT\n")
+
+    logger.info(f"New .SOS file generated at {output_filepath}")
+    logger.debug(f"Written geometries: {len(captured_blocks)}")
+
+    # Verify LOKALIDs in the new file
+    with open(output_filepath, 'r', encoding='UTF-8') as new_file:
+        new_lines = new_file.readlines()
+        new_lokalids = {line.split()[1].strip('"') for line in new_lines if line.startswith('...LOKALID')}
+        missing_lokalids = lokalid_set - new_lokalids
+
+        if missing_lokalids:
+            logger.error(f"Missing LOKALIDs in the new .SOS file: {missing_lokalids}")
+            raise ValueError(f"Missing LOKALIDs in the new .SOS file: {missing_lokalids}")
+
+    logger.info("All LOKALIDs are present in the new .SOS file.")
+
+
+def main():
+    # Select the .SOS file
+    filepath = select_file()
+    if not filepath:
+        logger.info("No file selected. Exiting.")
+        return
+
+    logger.info(f"Selected file: {filepath}")
+
+    # Read the .SOS file with proper encoding
+    try:
+        import sosilogic  # Ensure that sosilogic is imported if not already
+        sosifile, all_attributes = sosilogic.read_sosi_file(filepath)
+        gdf = sosilogic.sosi_to_geodataframe(sosifile, all_attributes)
+        if gdf.crs is None:
+            gdf.set_crs(epsg=25832, inplace=True)  # EPSG:25832 if not already set
+            logger.warning("GeoDataFrame CRS is not set. Setting to EPSG:25832 by default.")
+    except Exception as e:
+        logger.error(f"Error reading the .SOS file: {e}")
+        return
+
+    # Check for mismatched geometries and attributes
+    if gdf.empty:
+        logger.warning("GeoDataFrame is empty. No geometries found.")
+        return
+
+    # Find lines where endpoints are within the buffer distance
+    nearby_rows = find_nearby_lines(gdf, buffer_distance=1)  # Set buffer distance to 5 meters
+
+    # Print nearby_rows to the terminal for debugging
+    print(nearby_rows)
+
+    if not nearby_rows.empty:
+        # Generate new SOS file
+        output_file_path = os.path.join(os.path.dirname(filepath), 'nearby_lines.sos')
+        generate_sosi_file(nearby_rows, filepath, output_file_path)
+    else:
+        logger.info("No nearby lines found.")
+
+if __name__ == "__main__":
+    main()
