@@ -134,7 +134,8 @@ def read_sosi_file(filepath):
                             kp = kp_value.strip()
                             #logger.debug(f"Captured KP value: {kp} at line {line_number}")
                     except ValueError:
-                        logger.error(f"Invalid coordinate at line {line_number}: {line.strip()}")
+                        pass
+                        #logger.error(f"Invalid coordinate at line {line_number}: {line.strip()}")
                 elif stripped_line.startswith('.') and not stripped_line.startswith('..'):
                     expecting_coordinates = False  # Coordinates are interrupted by another geometric block
 
@@ -202,7 +203,7 @@ def convert_to_2d_if_mixed(coordinates, dimension):
     has_2d = any(len(coord) == 2 for coord in coordinates)
     if has_2d:
         # Convert all coordinates to 2D
-        logger.debug("Converting mixed 2D and 3D coordinates to 2D.")
+        #logger.debug("Converting mixed 2D and 3D coordinates to 2D.")
         return [(x, y) for x, y, *z in coordinates]  # Strip Z if present
     elif dimension == 3:
         # Keep as 3D
