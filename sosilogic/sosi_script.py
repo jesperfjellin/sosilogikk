@@ -6,6 +6,7 @@ import logging
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger('matplotlib.font_manager').disabled = True
 logger = logging.getLogger()
 
 def read_sosi_file(filepath):
