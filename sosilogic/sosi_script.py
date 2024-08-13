@@ -37,7 +37,7 @@ def read_sosi_file(filepath):
     found_2d = False  # Track if any 2D coordinates are found
 
     logger.info(f"Opening file: {filepath}")
-    with open(filepath, 'r', encoding='UTF-8') as file:
+    with open(filepath, 'r', encoding='windows-1252') as file:
         for line_number, line in enumerate(file, 1):
             stripped_line = line.strip()
 
