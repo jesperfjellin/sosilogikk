@@ -1,4 +1,4 @@
-from module.sosilogikk import read_sosi_file, sosi_to_geodataframe  # Import functions directly
+from module.sosilogikk import read_sosi_file, sosi_to_geodataframe
 import pandas as pd 
 
 
