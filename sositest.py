@@ -1,9 +1,5 @@
-import sys
-import matplotlib.pyplot as plt
 from module.sosilogikk import read_sosi_file, sosi_to_geodataframe  # Import functions directly
-import numpy as np  
 import pandas as pd 
-import geopandas as gpd
 
 filepath = r'C:\DATA\SOSI_testdata\Dreneringslinjer_3301_Drammen_åpne_stikkrenner.sos'
 
@@ -27,4 +23,3 @@ sosifile_dataframe.to_file(output_fgb_path, driver="FlatGeobuf")
 
 print(f"GeoDataFrame saved to FlatGeobuf at {output_fgb_path}")
 
-plt.show()
