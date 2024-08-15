@@ -37,7 +37,7 @@ def read_sosi_file(filepath):
     found_2d = False  # Sjekker hvis noen 2D geometrier har blitt funnet
 
     logger.info(f"Opening file: {filepath}")
-    with open(filepath, 'r', encoding='windows-1252') as file:
+    with open(filepath, 'r', encoding='utf-8') as file:
         for line_number, line in enumerate(file, 1):
             stripped_line = line.strip()
 
