@@ -11,6 +11,12 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/jesperfjellin/sosilogikk',  
     packages=find_packages(exclude=['exampleUse*', 'images*']),
+    install_requires=[
+        'geopandas==1.0.1',
+        'numpy==2.0.1',
+        'pandas==2.2.2',
+        'Shapely==2.0.5'
+    ],
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',

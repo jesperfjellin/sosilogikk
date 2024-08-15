@@ -1,0 +1,30 @@
+Metadata-Version: 2.1
+Name: sosilogikk
+Version: 1.0.0
+Summary: Logikk for å bruke Python biblioteker som Geopandas, Shapely, Fiona etc på .SOS-filer. sosilogikk.py i mappen modules definerer en logikk for å bryte opp en .SOS-fil i objektsegmenter som kan lastes inn i en Geopandas dataframe.
+Home-page: https://github.com/jesperfjellin/sosilogikk
+Author: Jesper Fjellin
+Author-email: jesperfjellin@gmail.com
+License: GPLv3
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+License-File: LICENSE
+
+
+
+<div align="center">
+  <img src="./images/sosilogikk.jpg" alt="Project Logo" width="400"/>
+</div>
+
+<div align="center">
+
+
+  
+</div>
+
+---
+
+Logikk for Ã¥ bruke Python biblioteker som Geopandas, Shapely, Fiona etc pÃ¥ .SOS-filer. sosilogikk.py i mappen modules definerer en logikk for Ã¥ bryte opp en .SOS-fil i objektsegmenter som kan lastes inn i en Geopandas dataframe. 

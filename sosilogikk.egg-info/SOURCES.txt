@@ -1,0 +1,9 @@
+LICENSE
+README.md
+setup.py
+module/__init__.py
+module/sosilogikk.py
+sosilogikk.egg-info/PKG-INFO
+sosilogikk.egg-info/SOURCES.txt
+sosilogikk.egg-info/dependency_links.txt
+sosilogikk.egg-info/top_level.txt
