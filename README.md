@@ -12,7 +12,7 @@
 
 ---
 
-Logikk for å bruke Python biblioteker som Geopandas, Shapely, Fiona etc på .SOS-filer. sosilogikk.py i mappen modules definerer en logikk for å bryte opp en .SOS-fil i objektsegmenter som kan lastes inn i en Geopandas dataframe. 
+Logikk for å bruke Python biblioteker som Geopandas, Shapely, Fiona etc på .SOS-filer. sosilogikk.py i mappen module definerer en logikk for å bryte opp en .SOS-fil i objektsegmenter som kan lastes inn i en Geopandas dataframe. 
 
 # Installering
 Pakken installeres gjennom programvarelageret PyPi:
