@@ -1,6 +1,7 @@
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import LineString, Point, Polygon
+import shapely.affinity
 import numpy as np
 import logging
 
@@ -11,19 +12,23 @@ logger = logging.getLogger()
 
 def read_sosi_file(filepath):
     """
-    Leser en .SOS fil og returnerer geometrien og attributtene i et strukturert format.
+    Leser en .SOS fil og returnerer geometrien, attributtene, og enhetsskalaen i et strukturert format.
     
     Args:
         filepath (str): Stien til SOS-fila.
     
     Returns:
         dict: Data med 'geometry' og 'attributes'.
+        set: Alle attributter.
+        float: Enhetsskalaen (hentet fra ...ENHET).
     """
     parsed_data = {
         'geometry': [],  # Geometrier (LineString, Point, Polygon)
         'attributes': [] 
     }
+    enhet_scale = 1.0  # Default scale factor if ...ENHET is not found
 
+    # Other variables
     kurve_coordinates = {}  # .KURVE geometrier blir behandlet i en egen dictionary pga relasjonen til .FLATE geometrier for å definere gyldige flater
     current_attributes = {}
     all_attributes = set()  # Samler alle mulige attributter
@@ -46,6 +51,11 @@ def read_sosi_file(filepath):
 
             if stripped_line == '.SLUTT':
                 break
+
+            # Extract the ...ENHET value
+            if stripped_line.startswith('...ENHET'):
+                enhet_scale = float(stripped_line.split()[1])
+                logger.info(f"Extracted scale factor ...ENHET: {enhet_scale}")
 
             if stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE')):
                 if capturing:
@@ -167,11 +177,10 @@ def read_sosi_file(filepath):
     if len(parsed_data['geometry']) != len(parsed_data['attributes']):
         logger.warning(f"Mismatch between geometries and attributes: {len(parsed_data['geometry'])} vs {len(parsed_data['attributes'])}")
         
-
     logger.info(f"Total parsed geometries: {len(parsed_data['geometry'])}")
     logger.info(f"Total parsed attributes: {len(parsed_data['attributes'])}")
 
-    return parsed_data, all_attributes
+    return parsed_data, all_attributes, enhet_scale
 
 def convert_to_2d_if_mixed(coordinates, dimension):
     """
@@ -193,13 +202,14 @@ def convert_to_2d_if_mixed(coordinates, dimension):
     else:
         return [(x, y) for x, y in coordinates]  
 
-def sosi_to_geodataframe(parsed_data, all_attributes):
+def sosi_to_geodataframe(parsed_data, all_attributes, scale_factor=1.0):
     """
     Konverterer tolkede SOSI-data til en GeoDataFrame.
 
     Args:
         parsed_data (dict): Tolkede SOSI-data med 'geometry' og 'attributes'.
         all_attributes (set): Sett med alle registrerte attributter.
+        scale_factor (float): Skaleringsfaktor fra ...ENHET.
 
     Returns:
         gpd.GeoDataFrame: GeoDataFrame som inneholder SOSI-dataene.
@@ -213,6 +223,9 @@ def sosi_to_geodataframe(parsed_data, all_attributes):
         geometries = geometries[:min_length]
         attributes = attributes[:min_length]
 
+    # Apply the scale factor to the geometries
+    scaled_geometries = scale_geometries(geometries, scale_factor)
+
     df = pd.DataFrame(attributes)
     
     # Sjekker at alle attributter er til stede
@@ -220,6 +233,28 @@ def sosi_to_geodataframe(parsed_data, all_attributes):
         if attribute not in df:
             df[attribute] = np.nan
 
-    gdf = gpd.GeoDataFrame(df, geometry=geometries)
+    gdf = gpd.GeoDataFrame(df, geometry=scaled_geometries)
 
     return gdf
+
+def scale_geometries(geometries, scale_factor=1.0):
+    """
+    Scales geometries according to the provided scale factor.
+
+    Args:
+        geometries (list of shapely.geometry): List of geometries to be scaled.
+        scale_factor (float): The scale factor to apply to the geometries.
+
+    Returns:
+        list of shapely.geometry: The scaled geometries.
+    """
+    scaled_geometries = []
+    
+    for geom in geometries:
+        # Scale the geometry
+        if scale_factor != 1.0:
+            geom = shapely.affinity.scale(geom, xfact=scale_factor, yfact=scale_factor, origin=(0, 0))
+        
+        scaled_geometries.append(geom)
+    
+    return scaled_geometries
