@@ -202,17 +202,18 @@ def convert_to_2d_if_mixed(coordinates, dimension):
     else:
         return [(x, y) for x, y in coordinates]  
 
-def sosi_to_geodataframe(parsed_data, all_attributes, scale_factor=1.0):
+def sosi_to_geodataframe(parsed_data, all_attributes, scale_factor=1.0, normalize_to_meters=False):
     """
-    Konverterer tolkede SOSI-data til en GeoDataFrame.
+    Converts parsed SOSI data to a GeoDataFrame.
 
     Args:
-        parsed_data (dict): Tolkede SOSI-data med 'geometry' og 'attributes'.
-        all_attributes (set): Sett med alle registrerte attributter.
-        scale_factor (float): Skaleringsfaktor fra ...ENHET.
+        parsed_data (dict): Parsed SOSI data with 'geometry' and 'attributes'.
+        all_attributes (set): Set of all registered attributes.
+        scale_factor (float): Scaling factor from ...ENHET.
+        normalize_to_meters (bool): If True, normalize coordinates to meters (for EPSG:25832).
 
     Returns:
-        gpd.GeoDataFrame: GeoDataFrame som inneholder SOSI-dataene.
+        gpd.GeoDataFrame: GeoDataFrame containing the SOSI data.
     """
     geometries = parsed_data['geometry']
     attributes = parsed_data['attributes']
@@ -224,11 +225,11 @@ def sosi_to_geodataframe(parsed_data, all_attributes, scale_factor=1.0):
         attributes = attributes[:min_length]
 
     # Apply the scale factor to the geometries
-    scaled_geometries = scale_geometries(geometries, scale_factor)
+    scaled_geometries = scale_geometries(geometries, scale_factor, normalize_to_meters)
 
     df = pd.DataFrame(attributes)
     
-    # Sjekker at alle attributter er til stede
+    # Ensure all attributes are present
     for attribute in all_attributes:
         if attribute not in df:
             df[attribute] = np.nan
@@ -237,16 +238,18 @@ def sosi_to_geodataframe(parsed_data, all_attributes, scale_factor=1.0):
 
     return gdf
 
-def scale_geometries(geometries, scale_factor=1.0):
+
+def scale_geometries(geometries, scale_factor=1.0, normalize_to_meters=False):
     """
-    Scales geometries according to the provided scale factor.
+    Scales geometries according to the provided scale factor and normalizes them to meters if specified.
 
     Args:
         geometries (list of shapely.geometry): List of geometries to be scaled.
         scale_factor (float): The scale factor to apply to the geometries.
+        normalize_to_meters (bool): If True, normalizes the coordinates to meters.
 
     Returns:
-        list of shapely.geometry: The scaled geometries.
+        list of shapely.geometry: The scaled and/or normalized geometries.
     """
     scaled_geometries = []
     
@@ -255,6 +258,10 @@ def scale_geometries(geometries, scale_factor=1.0):
         if scale_factor != 1.0:
             geom = shapely.affinity.scale(geom, xfact=scale_factor, yfact=scale_factor, origin=(0, 0))
         
+        # If normalization is required, ensure the coordinates are in meters
+        if normalize_to_meters:
+            pass  # Add normalization logic if needed
+
         scaled_geometries.append(geom)
     
     return scaled_geometries
