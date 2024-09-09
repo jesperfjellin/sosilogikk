@@ -12,30 +12,30 @@ logger = logging.getLogger()
 
 def read_sosi_file(filepath):
     """
-    Reads a .SOS file and returns geometry, attributes, unit scale, and an index for each object.
+    Leser en SOSI-fil og returnerer geometri, attributter, ...ENHET-verdi, og en indeks for hvert objekt.
     
     Args:
-        filepath (str): Path to the .SOS file.
+        filepath (str): Sti til SOSI-fil.
     
     Returns:
-        dict: Data with 'geometry' and 'attributes'.
-        set: All attributes encountered.
-        float: Unit scale (from ...ENHET).
-        dict: SOSI index mapping object ID to original content.
-        tuple: MIN-NØ and MAX-NØ values (min_n, min_e, max_n, max_e).
+        dict: Data med 'geometry' og 'attributes'.
+        set: Alle attributter skriptet kommer over.
+        float: Unit scale (fra ...ENHET).
+        dict: SOSI index mapping av objekt ID til original_context (posisjon i innlest SOSI-fil.
+        tuple: MIN-NØ og MAX-NØ verdier (min_n, min_e, max_n, max_e).
     """
-    logger.info("Entering read_sosi_file function")
+  
     parsed_data = {
-        'geometry': [],  # Geometries (LineString, Point, Polygon)
+        'geometry': [],  # Geometrier (punkt, kurve, flate)
         'attributes': [] 
     }
-    enhet_scale = None  # Set to None to explicitly check later
-    sosi_index = {}  # Initialize the SOSI index
-    all_attributes = set()  # Initialize the set of all attributes
-    current_object = []  # Temporary list to hold the current object's lines
-    object_id = 0  # Unique ID for each object
+    enhet_scale = None  # ...ENHET verdi for innlest fil (blir oppdatert lenger ned i skript)
+    sosi_index = {}  # Initialiserer SOSI index
+    all_attributes = set()  # Initialiserer set for alle attributter
+    current_object = []  # Midlertidig liste for å holde nåværende objekts egenskaper
+    object_id = 0  # Unik ID for hvert objekt
 
-    # Other variables for handling geometries and attributes
+    # Andre variabler for å håndtere geometrier og attributter
     kurve_coordinates = {}  
     current_attributes = {}
     coordinates = []
@@ -62,20 +62,20 @@ def read_sosi_file(filepath):
                     _, max_e, max_n = stripped_line.split()  # Swapped order
                     max_n, max_e = float(max_n), float(max_e)
                 
-                # Extract the ...ENHET value
+                # Henter ...ENHET-verdi
                 if stripped_line.startswith('...ENHET'):
                     try:
                         enhet_scale = float(stripped_line.split()[1])
-                        logger.info(f"Extracted scale factor ...ENHET: {enhet_scale}")
+                        #logger.info(f"Extracted scale factor ...ENHET: {enhet_scale}")
                     except (IndexError, ValueError) as e:
-                        logger.error(f"Error parsing ...ENHET value at line {line_number}: {line.strip()} - {e}")
-                        raise ValueError(f"Invalid or malformed ...ENHET value in {filepath}. Exiting.")
+                        logger.error(f"SOSILOGIKK: Error innlesing ...ENHET verdi på linje {line_number}: {line.strip()} - {e}")
+                        raise ValueError(f"SOSILOGIKK: Ugyldig ...ENHET-verdi i fil {filepath}. Avslutter.")
 
-                # Capture geometry start (e.g., .KURVE, .PUNKT, .FLATE)
+                # Begynner å fange nytt objekt (e.g., .KURVE, .PUNKT, .FLATE)
                 if stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE')):
-                    if capturing:  # End capturing for the current object before starting a new one
+                    if capturing:  # Avslutter fanging for gjeldende geometrisk objekt før neste starter
                         try:
-                            if coordinates and current_attributes:  # Only add if we have both coordinates and attributes
+                            if coordinates and current_attributes:  
                                 uniform_coordinates = convert_to_2d_if_mixed(coordinates, coordinate_dim)
                                 if geom_type == '.KURVE':
                                     kurve_id = current_attributes.get('OBJTYPE', '').split()[-1]
@@ -104,26 +104,26 @@ def read_sosi_file(filepath):
                                         parsed_data['attributes'].append(current_attributes)
 
                             sosi_index[object_id] = current_object
-                            object_id += 1  # Increment the object ID for the next object
+                            object_id += 1  # Inkrementerer objekt ID for neste objekt med 1
                         except Exception as e:
-                            logger.error(f"Error at line {line_number}: {line.strip()}")
-                            logger.error(f"Error details: {e}")
+                            logger.error(f"SOSILOGIKK: Error linje: {line_number}: {line.strip()}")
+                            logger.error(f"SOSILOGIKK: Error detaljer: {e}")
                             raise
 
-                    # Reset for the new geometry object
+                    # Resetter for nytt geometrisk objekt
                     current_attributes = {}
                     coordinates = []
                     kp = None
-                    capturing = True  # Now start capturing the new object
-                    geom_type = stripped_line.split()[0]  # Set the geometry type (e.g., .KURVE, .PUNKT, .FLATE)
+                    capturing = True  # Starter å fange nytt objekt
+                    geom_type = stripped_line.split()[0]  # Setter geometritype (e.g., .KURVE, .PUNKT, .FLATE)
                     flate_refs = []
                     expecting_coordinates = False
                     coordinate_dim = None
                     found_2d = False
-                    current_object = [line]  # Start capturing the new object
+                    current_object = [line]  
                     continue
 
-                # Capture attributes
+                # Fanger attributter
                 if capturing:
                     if stripped_line.startswith('..'):
                         key_value = stripped_line[2:].split(maxsplit=1)
@@ -151,23 +151,35 @@ def read_sosi_file(filepath):
                     elif stripped_line.startswith('.') and not stripped_line.startswith('..'):
                         expecting_coordinates = False  
 
-        # Check for missing ...ENHET value
+        # Sjekker om SOSI-fil mangler ...ENHET-verdi
         if enhet_scale is None:
-            logger.error(f"Missing ...ENHET line in file {filepath}. This file is invalid. Exiting.")
-            raise ValueError(f"...ENHET value not found in {filepath}. Exiting.")
+            logger.error(f"SOSILOGIKK: Mangler ...ENHET linje i SOSI-fil {filepath}. Denne filen er ugyldig. Avslutter.")
+            raise ValueError(f"SOSILOGIKK: ...ENHET verdi ikke funnet i fil {filepath}. Avslutter.")
 
-        logger.info(f"Final enhet_scale: {enhet_scale}")
-        logger.info(f"MIN-NØ: {min_n}, {min_e}, MAX-NØ: {max_n}, {max_e}")
+        logger.info(f"SOSILOGIKK: ...ENHET-verdi for innlest fil: {enhet_scale}")
+        logger.info(f"SOSILOGIKK: MIN-NØ: {min_n}, {min_e}, MAX-NØ: {max_n}, {max_e}")
 
     except Exception as e:
-        logger.error(f"An error occurred in read_sosi_file: {str(e)}")
+        logger.error(f"SOSILOGIKK: En error oppstod i read_sosi_file funksjon: {str(e)}")
         raise
 
-    logger.info("Exiting read_sosi_file function")
+    #logger.info("Exiting read_sosi_file function")
     return parsed_data, all_attributes, enhet_scale, sosi_index, (min_n, min_e, max_n, max_e)
 
 
 def convert_to_2d_if_mixed(coordinates, dimension):
+    """
+    Konverterer blandete geometrier (geometri med både 2D- og 3D-koordinater) til ren 2D-geometri.
+    Dette er nødvendig for å laste geometrien inn i en GeoPandas GeoDataFrame, som krever 2D-geometri for å fungere korrekt.
+
+    Args:
+        coordinates (list): Liste over koordinater (som kan være 2D eller 3D).
+        dimension (int): Antall dimensjoner i geometrien (2 eller 3).
+
+    Returns:
+        list: En liste med 2D-koordinater (y, x) hvis det finnes blanding av 2D og 3D koordinater.
+              Returnerer 3D-koordinater (y, x, z) hvis geometrien har 3 dimensjoner.
+    """
     has_2d = any(len(coord) == 2 for coord in coordinates)
     if has_2d:
         return [(y, x) for x, y, *z in coordinates]  # Swapped x and y
@@ -177,6 +189,17 @@ def convert_to_2d_if_mixed(coordinates, dimension):
         return [(y, x) for x, y in coordinates]  # Swapped x and y
     
 def force_2d(geom):
+    """
+    Fjerner Z-dimensjonen fra en geometritype som har 3D-koordinater, og konverterer geometrien til 2D.
+    Funksjonen støtter punkt, linje, og polygon-geometrier. Koordinatene blir også ombyttet slik at de returneres som (y, x).
+
+    Args:
+        geom (shapely.geometry): Shapely-geometriobjekt som kan være et punkt, linje, eller polygon.
+
+    Returns:
+        shapely.geometry: Geometriobjekt konvertert til 2D med (y, x) koordinater.
+                         Returnerer originalgeometrien hvis den allerede er 2D.
+    """
     if geom.has_z:
         if isinstance(geom, shapely.geometry.Point):
             return shapely.geometry.Point(geom.y, geom.x)  # Swapped x and y
@@ -191,18 +214,18 @@ def force_2d(geom):
 
 def sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
     """
-    Converts parsed SOSI data to a GeoDataFrame, handling multiple input files if provided.
+    Konverterer parsede SOSI-data til en GeoDataFrame, og håndterer flere input-filer hvis gitt.
 
     Args:
-        sosi_data_list (list or dict): Parsed SOSI data with 'geometry' and 'attributes'.
-        all_attributes_list (list or set): Set(s) of all registered attributes.
-        scale_factors (list or float): Scaling factor(s) from ...ENHET.
+        sosi_data_list (liste eller dict): Parsede SOSI-data med 'geometry' og 'attributes'.
+        all_attributes_list (liste eller sett): Sett med alle registrerte attributter.
+        scale_factors (liste eller float): Skaleringsfaktor(er) fra ...ENHET.
 
     Returns:
-        gpd.GeoDataFrame: GeoDataFrame containing the SOSI data.
-        tuple: Overall extent (min_n, min_e, max_n, max_e).
+        gpd.GeoDataFrame: GeoDataFrame som inneholder SOSI-dataene.
+        tuple: Totalt utstrekning (min_n, min_e, max_n, max_e).
     """
-    # Ensure inputs are lists even if single file is provided
+    # Sørger for at input SOSI-filer utgjør en liste, selv om det kun er en SOSI-fil som blir brukt
     if not isinstance(sosi_data_list, list):
         sosi_data_list = [sosi_data_list]
         all_attributes_list = [all_attributes_list]
@@ -216,40 +239,40 @@ def sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
         geometries = sosi_data['geometry']
         attributes = sosi_data['attributes']
 
-        # Check if there is a mismatch between geometries and attributes
+        # Sjekker om det er en mismatch mellom antall attributter og geometrier (det skal være et 1:1 forhold, ellers er det geometrier som ikke har noen attributter
         if len(geometries) != len(attributes):
-            print(f"Warning: Mismatch found: {len(geometries)} geometries, {len(attributes)} attributes")
+            print(f"SOSILOGIKK: Advarsel: mismatch funnet: {len(geometries)} geometrier, {len(attributes)} attributter")
             min_length = min(len(geometries), len(attributes))
             geometries = geometries[:min_length]
             attributes = attributes[:min_length]
 
-        # Apply the scale factor to the geometries
+        # Anvender ...ENHET verdi (scale_factor) på geometri
         scaled_geometries = scale_geometries(geometries, scale_factor)
 
-        # Create a DataFrame from the attributes
+        # Lager DataFrame fra attributter
         df = pd.DataFrame(attributes)
 
-        # Ensure all attributes are present in the DataFrame
+        # Sjekker at alle attributter er til stede i DataFrame
         for attribute in all_attributes:
             if attribute not in df:
                 df[attribute] = np.nan
 
-        # Create the GeoDataFrame
+        # Lager GeoDataFrame
         gdf = gpd.GeoDataFrame(df, geometry=scaled_geometries)
 
-        # Add an 'original_id' column to track the original position of each object in the SOSI file
+        # Legger til 'original_id' kolonne i GeoDataFramen for å holde styr på den originale posisjonen til hvert geometriske objekt i de originale SOSI-filene
         gdf['original_id'] = range(len(gdf))
 
         gdfs.append(gdf)
         
-        # Update overall min and max coordinates
+        # Oppdaterer total min max koordinater
         min_n, min_e, max_n, max_e = gdf.total_bounds
         overall_min_n = min(overall_min_n, min_n)
         overall_min_e = min(overall_min_e, min_e)
         overall_max_n = max(overall_max_n, max_n)
         overall_max_e = max(overall_max_e, max_e)
     
-    # Combine all GeoDataFrames
+    # Slår sammen alle GeoDataFrames
     combined_gdf = pd.concat(gdfs, ignore_index=True)
     combined_gdf['original_id'] = range(len(combined_gdf))
     
@@ -258,14 +281,14 @@ def sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
 
 def scale_geometries(geometries, scale_factor=1.0):
     """
-    Scales geometries according to the provided scale factor.
+    Skalerer geometrier i henhold til den oppgitte skaleringsfaktoren.
 
     Args:
-        geometries (list of shapely.geometry): List of geometries to be scaled.
-        scale_factor (float): The scale factor to apply to the geometries.
+        geometries (liste over shapely.geometry): Liste over geometrier som skal skaleres.
+        scale_factor (float): Skaleringsfaktoren som skal brukes på geometrier.
 
     Returns:
-        list of shapely.geometry: The scaled geometries.
+        liste over shapely.geometry: De skalerte geometrier.
     """
     scaled_geometries = []
     
@@ -280,55 +303,55 @@ def scale_geometries(geometries, scale_factor=1.0):
 
 def write_geodataframe_to_sosi(gdf, sosi_index, output_filepath, extent, enhet_scale, use_index=True):
     """
-    Writes a GeoDataFrame back to a SOSI file, optionally using the original SOSI index to preserve formatting.
+    Skriver en GeoDataFrame tilbake til en SOSI-fil, og bruker valgfritt den originale SOSI-indeksen for å bevare formateringen.
 
     Args:
-        gdf (gpd.GeoDataFrame): The GeoDataFrame containing the SOSI data.
-        sosi_index (dict): The index mapping object IDs to original SOSI content.
-        output_filepath (str or Path): The path where the new SOSI file will be written.
-        extent (tuple): The extent of the data (min_n, min_e, max_n, max_e).
-        enhet_scale (float): The scale factor for the coordinates.
-        use_index (bool): Whether to use the SOSI index for writing (default True).
+        gdf (gpd.GeoDataFrame): GeoDataFrame som inneholder SOSI-data.
+        sosi_index (dict): Indeks som mapper objekt-IDer til original SOSI-innhold.
+        output_filepath (str eller Path): Sti der den nye SOSI-filen vil bli skrevet.
+        extent (tuple): Utstrekningen av dataene (min_n, min_e, max_n, max_e).
+        enhet_scale (float): Skaleringsfaktoren for koordinatene.
+        use_index (bool): Om SOSI-indeksen skal brukes for skriving (standard er True).
 
     Returns:
-        bool: True if the file was successfully written, False otherwise.
+        bool: True hvis filen ble skrevet vellykket, False ellers.
     """
     logger = logging.getLogger(__name__)
-    logger.info(f"Writing GeoDataFrame to SOSI file: {output_filepath}")
+    logger.info(f"SOSILOGIKK: Skriver GeoDataFrame til SOSI-fil: {output_filepath}")
     min_n, min_e, max_n, max_e = extent
     
     try:
         with open(output_filepath, 'w', encoding='utf-8') as outfile:
             # Write the SOSI file header
-            logger.info("Writing header section...")
+            logger.info("SOSILOGIKK: Skriver .HODE seksjon...")
             outfile.write(".HODE\n..TEGNSETT UTF-8\n..OMRÅDE\n")
-            outfile.write(f"...MIN-NØ {min_e:.2f} {min_n:.2f}\n")  # Swapped order
-            outfile.write(f"...MAX-NØ {max_e:.2f} {max_n:.2f}\n")  # Swapped order
+            outfile.write(f"...MIN-NØ {min_e:.2f} {min_n:.2f}\n")  # Reversert rekkefølge for FYSAK
+            outfile.write(f"...MAX-NØ {max_e:.2f} {max_n:.2f}\n")  # Reversert rekkefølge for FYSAK
             
             if enhet_scale is not None:
                 enhet_str = f"{enhet_scale:.6f}".rstrip('0').rstrip('.')
                 outfile.write(f"...ENHET {enhet_str}\n")
             else:
-                logger.warning("enhet_scale is None, skipping ...ENHET line")
+                logger.warning("SOSILOGIKK: enhet_scale er None, ignorerer ...ENHET linje")
             
-            logger.info(f"GeoDataFrame length: {len(gdf)}")
+            logger.info(f"SOSILOGIKK: GeoDataFrame lengde: {len(gdf)}")
             if use_index:
-                logger.info(f"SOSI index size: {len(sosi_index)}")
+                logger.info(f"SOSILOGIKK: SOSI index størrelse: {len(sosi_index)}")
                 written_ids = set()
 
                 for index, row in gdf.iterrows():
                     original_id = row.get('original_id')
                     
                     if original_id is None:
-                        logger.warning(f"Row {index} has no original_id. Skipping.")
+                        logger.warning(f"SOSILOGIKK: Rad {index} har ingen original_id. Hopper over.")
                         continue
 
                     if original_id in written_ids:
-                        logger.info(f"Skipping duplicate content for original_id: {original_id}")
+                        logger.info(f"SOSILOGIKK: Hopper over duplisert innhold for original_id: {original_id}")
                         continue
 
                     if original_id not in sosi_index:
-                        logger.warning(f"No SOSI index entry for original_id: {original_id}. Skipping.")
+                        logger.warning(f"SOSILOGIKK: Ingen SOSI index verdi for original_id: {original_id}. Hopper over.")
                         continue
 
                     outfile.writelines(sosi_index[original_id])
@@ -356,16 +379,14 @@ def write_geodataframe_to_sosi(gdf, sosi_index, output_filepath, extent, enhet_s
                     
                     outfile.write("..NØ\n")
 
-            # Write the SOSI file footer
-            logger.info("Writing footer .SLUTT")
             outfile.write(".SLUTT\n")
 
-        logger.info(f"Successfully wrote SOSI file to {output_filepath}")
+        #logger.info(f"Successfully wrote SOSI file to {output_filepath}")
         return True
 
     except IOError as e:
-        logger.error(f"IO error occurred while writing SOSI file: {str(e)}", exc_info=True)
+        logger.error(f"SOSILOGIKK: IO error oppstod mens SOSI-fil ble skrevet: {str(e)}", exc_info=True)
         return False
     except Exception as e:
-        logger.error(f"Unexpected error occurred while writing SOSI file: {str(e)}", exc_info=True)
+        logger.error(f"SOSILOGIKK: Uforventet error oppstod mens SOSI-fil ble skrevet: {str(e)}", exc_info=True)
         return False
