@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='sosilogikk',  
-    version='1.0.1',
+    version='1.0.4',
     license='GPLv3',
     author='Jesper Fjellin',
     author_email='jesperfjellin@gmail.com',
@@ -13,7 +13,7 @@ setup(
     packages=find_packages(exclude=['exampleUse*', 'images*']),
     install_requires=[
         'geopandas==1.0.1',
-        'numpy==2.0.1',
+        'numpy==1.26.4',
         'pandas==2.2.2',
         'Shapely==2.0.5'
     ],

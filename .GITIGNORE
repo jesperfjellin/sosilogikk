@@ -1,2 +1,8 @@
+# Ignore Python bytecode files
 module/__pycache__/
 *.py[cod]
+
+# Ignore distribution and build directories
+build/
+dist/
+sosilogikk.egg-info/
