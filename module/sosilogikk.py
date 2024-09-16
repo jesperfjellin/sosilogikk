@@ -1,3 +1,5 @@
+# https://github.com/jesperfjellin/sosilogikk
+
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import LineString, Point, Polygon
