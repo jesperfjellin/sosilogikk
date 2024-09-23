@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='sosilogikk',  
-    version='1.0.5',
+    version='1.0.7',
     license='GPLv3',
     author='Jesper Fjellin',
     author_email='jesperfjellin@gmail.com',

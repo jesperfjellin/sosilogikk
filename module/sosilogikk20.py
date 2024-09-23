@@ -2,7 +2,7 @@
 
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Point, LineString, Polygon
 import shapely.affinity
 import numpy as np
 import logging
@@ -12,13 +12,52 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logging.getLogger('matplotlib.font_manager').disabled = True
 logger = logging.getLogger()
 
+def process_object(obj_dict, parsed_data, sosi_index, object_id):
+    geom_type = obj_dict.get('OBJTYPE', None)
+    coordinates = None
+    attributes = {}
+
+    # Extract coordinates
+    if 'NØ' in obj_dict:
+        # 2D coordinates
+        coords = obj_dict['NØ']
+        coordinates = [c['coord'] for c in coords]
+    elif 'NØH' in obj_dict:
+        # 3D coordinates
+        coords = obj_dict['NØH']
+        coordinates = [c['coord'] for c in coords]
+
+    # Assign geometry based on object type
+    if coordinates:
+        if 'PUNKT' in obj_dict:
+            geometry = Point(coordinates[0])
+        elif 'KURVE' in obj_dict:
+            geometry = LineString(coordinates)
+        elif 'FLATE' in obj_dict:
+            geometry = Polygon(coordinates)
+        else:
+            geometry = None
+    else:
+        geometry = None
+
+    # Collect attributes (excluding coordinate data)
+    for key, value in obj_dict.items():
+        if key not in ['NØ', 'NØH']:
+            attributes[key] = value
+
+    # Update parsed_data
+    if geometry:
+        parsed_data['geometry'].append(geometry)
+        parsed_data['attributes'].append(attributes)
+        sosi_index[object_id] = obj_dict
+
 def read_sosi_file(filepath):
     """
     Leser en SOSI-fil og returnerer geometri, attributter, ...ENHET-verdi, og en indeks for hvert objekt.
-
+    
     Args:
         filepath (str): Sti til SOSI-fil.
-
+    
     Returns:
         dict: Data med 'geometry' og 'attributes'.
         set: Alle attributter skriptet kommer over.
@@ -26,162 +65,145 @@ def read_sosi_file(filepath):
         dict: SOSI index mapping av objekt ID til original_context (posisjon i innlest SOSI-fil.
         tuple: MIN-NØ og MAX-NØ verdier (min_n, min_e, max_n, max_e).
     """
-
+  
     parsed_data = {
-        'geometry': [],  # Geometrier (punkt, kurve, flate)
+        'geometry': [],
         'attributes': []
     }
-    enhet_scale = None  # ...ENHET verdi for innlest fil (blir oppdatert lenger ned i skript)
-    sosi_index = {}  # Initialiserer SOSI index
-    all_attributes = set()  # Initialiserer set for alle attributter
-    current_object = []  # Midlertidig liste for å holde nåværende objekts egenskaper
-    object_id = 0  # Unik ID for hvert objekt
+    enhet_scale = None
+    sosi_index = {}
+    all_attributes = set()
+    object_id = 0
 
-    # Andre variabler for å håndtere geometrier og attributter
-    kurve_coordinates = {}
-    current_attributes = {}
-    coordinates = []
-    kp = None
-    capturing = False
-    geom_type = None
-    flate_refs = []
-    expecting_coordinates = False
-    coordinate_dim = None
-    found_2d = False
+    # Variables for tracking
+    stack = []  # Stack to keep track of nesting levels
+    current_object = None
     min_n, min_e = float('inf'), float('inf')
     max_n, max_e = float('-inf'), float('-inf')
 
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
-            for line_number, line in enumerate(file, 1):
-                stripped_line = line.strip()
+            lines = file.readlines()
 
-                # Skip lines that contain exclamation marks
-                if '!' in stripped_line:
-                    continue
+        line_number = 0
+        while line_number < len(lines):
+            line = lines[line_number]
+            stripped_line = line.strip()
+            if not stripped_line:
+                line_number += 1
+                continue  # Skip empty lines
 
-                current_object.append(line)
+            # Count the number of leading dots
+            dot_count = len(line) - len(line.lstrip('.'))
+            content = line.lstrip('.').strip()
 
-                if stripped_line.startswith('...MIN-NØ'):
-                    _, min_e, min_n = stripped_line.split()  # Swapped order
-                    min_n, min_e = float(min_n), float(min_e)
-                elif stripped_line.startswith('...MAX-NØ'):
-                    _, max_e, max_n = stripped_line.split()  # Swapped order
-                    max_n, max_e = float(max_n), float(max_e)
-
-                # Henter ...ENHET-verdi
-                if stripped_line.startswith('...ENHET'):
-                    try:
-                        enhet_scale = float(stripped_line.split()[1])
-                        # logger.info(f"Extracted scale factor ...ENHET: {enhet_scale}")
-                    except (IndexError, ValueError) as e:
-                        logger.error(f"SOSILOGIKK: Error innlesing ...ENHET verdi på linje {line_number}: {line.strip()} - {e}")
-                        raise ValueError(f"SOSILOGIKK: Ugyldig ...ENHET-verdi i fil {filepath}. Avslutter.")
-
-                # Begynner å fange nytt objekt (e.g., .KURVE, .PUNKT, .FLATE)
-                if stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE')):
-                    if capturing:
-                        try:
-                            if coordinates and current_attributes:
-                                uniform_coordinates = convert_to_2d_if_mixed(coordinates, coordinate_dim)
-                                if geom_type == '.KURVE':
-                                    kurve_id_parts = current_attributes.get('OBJTYPE', '').split()
-                                    if kurve_id_parts:
-                                        kurve_id = kurve_id_parts[-1]
-                                        kurve_coordinates[kurve_id] = uniform_coordinates
-                                    parsed_data['geometry'].append(LineString(uniform_coordinates))
-                                    parsed_data['attributes'].append(current_attributes)
-                                elif geom_type == '.PUNKT':
-                                    if len(uniform_coordinates) == 1:
-                                        parsed_data['geometry'].append(Point(uniform_coordinates[0]))
-                                        parsed_data['attributes'].append(current_attributes)
-                                elif geom_type == '.FLATE':
-                                    if flate_refs:
-                                        flate_coords = []
-                                        for ref_id in flate_refs:
-                                            ref_id = ref_id.strip()
-                                            if ref_id in kurve_coordinates:
-                                                flate_coords.extend(kurve_coordinates[ref_id])
-                                        if flate_coords:
-                                            parsed_data['geometry'].append(Polygon(flate_coords))
-                                        else:
-                                            parsed_data['geometry'].append(Point(uniform_coordinates[0]))
-                                        parsed_data['attributes'].append(current_attributes)
-                                    else:
-                                        parsed_data['geometry'].append(Point(uniform_coordinates[0]))
-                                        parsed_data['attributes'].append(current_attributes)
-                            sosi_index[object_id] = current_object
-                            object_id += 1  # Inkrementerer objekt ID for neste objekt med 1
-                        except Exception as e:
-                            logger.error(f"SOSILOGIKK: Error linje: {line_number}: {line.strip()}")
-                            logger.error(f"SOSILOGIKK: Error detaljer: {e}")
-                            print("Objektet kunne ikke bli lest inn. Fortsetter.")
-
-                    # Resetter for nytt geometrisk objekt
-                    current_attributes = {}
-                    coordinates = []
-                    kp = None
-                    capturing = True  # Starter å fange nytt objekt
-                    geom_type = stripped_line.split()[0]  # Setter geometritype (e.g., .KURVE, .PUNKT, .FLATE)
-                    flate_refs = []
-                    expecting_coordinates = False
-                    coordinate_dim = None
-                    found_2d = False
-                    current_object = [line]
-                    continue
-
-                # Fanger attributter
-                if capturing:
-                    if stripped_line.startswith('..'):
-                        key_value = stripped_line[2:].split(maxsplit=1)
-                        key = key_value[0].lstrip('.')
-                        if key in ['NØ', 'NØH']:
-                            expecting_coordinates = True
-                            coordinate_dim = 3 if key == 'NØH' else 2
-                            continue
+            # Handle coordinate data under NØ or NØH
+            if dot_count == 0:
+                if stack and stack[-1]['key'] in ['NØ', 'NØH']:
+                    coords = []
+                    while line_number < len(lines) and not lines[line_number].strip().startswith('.'):
+                        coord_line = lines[line_number].strip()
+                        # Check for ...KP in the line
+                        if '...KP' in coord_line:
+                            coord_part, kp_part = coord_line.split('...KP')
+                            kp_value = kp_part.strip()
                         else:
-                            expecting_coordinates = False
-                            value = key_value[1] if len(key_value) == 2 else np.nan
-                            current_attributes[key] = value
-                            all_attributes.add(key)
-                    elif expecting_coordinates and not stripped_line.startswith('.'):
-                        try:
-                            parts = stripped_line.split()
-                            if coordinate_dim == 2:
-                                if len(parts) >= 2:
-                                    coord = (float(parts[1]), float(parts[0]))  # Swapped order
-                                    found_2d = True
-                                    coordinates.append(coord)
-                                else:
-                                    logger.warning(f"Insufficient coordinate data on line {line_number}: {stripped_line}")
-                                    print("Objektet kunne ikke bli lest inn. Fortsetter.")
-                            elif coordinate_dim == 3:
-                                if len(parts) >= 3:
-                                    coord = (float(parts[1]), float(parts[0]), float(parts[2]))  # Swapped order
-                                    coordinates.append(coord)
-                                else:
-                                    logger.warning(f"Insufficient coordinate data on line {line_number}: {stripped_line}")
-                                    print("Objektet kunne ikke bli lest inn. Fortsetter.")
-                        except ValueError as e:
-                            logger.error(f"Could not convert coordinate values to float on line {line_number}: {stripped_line} - {e}")
-                            print("Objektet kunne ikke bli lest inn. Fortsetter.")
-                    elif stripped_line.startswith('.') and not stripped_line.startswith('..'):
-                        expecting_coordinates = False
+                            coord_part = coord_line
+                            kp_value = None
+                        parts = coord_part.strip().split()
+                        if len(parts) >= 2:
+                            x = float(parts[1])
+                            y = float(parts[0])
+                            if len(parts) == 3:
+                                z = float(parts[2])
+                                coord = (x, y, z)
+                            else:
+                                coord = (x, y)
+                            coords.append({'coord': coord, 'KP': kp_value})
+                            # Update min/max coordinates
+                            min_n = min(min_n, y)
+                            min_e = min(min_e, x)
+                            max_n = max(max_n, y)
+                            max_e = max(max_e, x)
+                        line_number += 1
+                    # Assign coordinates to the current attribute
+                    current_attr = stack.pop()
+                    current_dict = stack[-1]['dict']
+                    current_dict[current_attr['key']] = coords
+                    continue  # Skip the line_number increment at the end
+                else:
+                    line_number += 1
+                    continue
 
-        # Sjekker om SOSI-fil mangler ...ENHET-verdi
+            # Adjust the stack to match the current dot_count
+            while len(stack) > dot_count:
+                stack.pop()
+
+            # Split the content into key and value
+            if ' ' in content:
+                key, value = content.split(' ', 1)
+            else:
+                key = content
+                value = None
+
+            # Handle special cases like ...ENHET, ...MIN-NØ, ...MAX-NØ
+            if dot_count >= 3 and key in ['ENHET', 'MIN-NØ', 'MAX-NØ']:
+                parts = content.split()
+                if key == 'ENHET':
+                    try:
+                        enhet_scale = float(parts[1])
+                    except (IndexError, ValueError):
+                        raise ValueError(f"SOSILOGIKK: Invalid ...ENHET value at line {line_number}: {line.strip()}")
+                elif key == 'MIN-NØ':
+                    min_e = float(parts[1])
+                    min_n = float(parts[2])
+                elif key == 'MAX-NØ':
+                    max_e = float(parts[1])
+                    max_n = float(parts[2])
+                line_number += 1
+                continue
+
+            # Build the current attribute dictionary
+            current_dict_entry = {'dict': {}, 'key': key}
+            if value is not None:
+                current_dict_entry['dict'] = value
+                all_attributes.add(key)
+            else:
+                current_dict_entry['dict'] = {}
+            stack.append(current_dict_entry)
+
+            # If this is a top-level object, store it
+            if dot_count == 1:
+                if current_object:
+                    # Process the previous object
+                    process_object(current_object['dict'], parsed_data, sosi_index, object_id)
+                    object_id += 1
+                current_object = current_dict_entry
+            else:
+                # Add to the parent dictionary
+                parent_dict = stack[-2]['dict']
+                if isinstance(parent_dict, dict):
+                    parent_dict[key] = current_dict_entry['dict']
+                else:
+                    # Handle the case where the parent is a value, not a dict
+                    pass
+
+            line_number += 1
+
+        # After the loop, store the last object
+        if current_object:
+            process_object(current_object['dict'], parsed_data, sosi_index, object_id)
+            object_id += 1
+
+        # Check for ...ENHET
         if enhet_scale is None:
-            logger.error(f"SOSILOGIKK: Mangler ...ENHET linje i SOSI-fil {filepath}. Denne filen er ugyldig. Avslutter.")
-            raise ValueError(f"SOSILOGIKK: ...ENHET verdi ikke funnet i fil {filepath}. Avslutter.")
+            raise ValueError(f"SOSILOGIKK: Missing ...ENHET value in file {filepath}.")
 
-        logger.info(f"SOSILOGIKK: ...ENHET-verdi for innlest fil: {enhet_scale}")
-        logger.info(f"SOSILOGIKK: MIN-NØ: {min_n}, {min_e}, MAX-NØ: {max_n}, {max_e}")
+        return parsed_data, all_attributes, enhet_scale, sosi_index, (min_n, min_e, max_n, max_e)
 
     except Exception as e:
-        logger.error(f"SOSILOGIKK: En error oppstod i read_sosi_file funksjon: {str(e)}")
+        logger.error(f"SOSILOGIKK: An error occurred: {str(e)}")
         raise
-
-    # logger.info("Exiting read_sosi_file function")
-    return parsed_data, all_attributes, enhet_scale, sosi_index, (min_n, min_e, max_n, max_e)
 
 
 def convert_to_2d_if_mixed(coordinates, dimension):
