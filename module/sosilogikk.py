@@ -63,10 +63,10 @@ def read_sosi_file(filepath):
                 current_object.append(line)
 
                 if stripped_line.startswith('...MIN-NØ'):
-                    _, min_e, min_n = stripped_line.split()  # Swapped order
+                    _, min_n, min_e = stripped_line.split()
                     min_n, min_e = float(min_n), float(min_e)
                 elif stripped_line.startswith('...MAX-NØ'):
-                    _, max_e, max_n = stripped_line.split()  # Swapped order
+                    _, max_n, max_e = stripped_line.split()
                     max_n, max_e = float(max_n), float(max_e)
 
                 # Henter ...ENHET-verdi
@@ -194,37 +194,37 @@ def convert_to_2d_if_mixed(coordinates, dimension):
         dimension (int): Antall dimensjoner i geometrien (2 eller 3).
 
     Returns:
-        list: En liste med 2D-koordinater (y, x) hvis det finnes blanding av 2D og 3D koordinater.
-              Returnerer 3D-koordinater (y, x, z) hvis geometrien har 3 dimensjoner.
+        list: En liste med 2D-koordinater (x, y) hvis det finnes blanding av 2D og 3D koordinater.
+              Returnerer 3D-koordinater (x, y, z) hvis geometrien har 3 dimensjoner.
     """
     has_2d = any(len(coord) == 2 for coord in coordinates)
     if has_2d:
-        return [(y, x) for x, y, *z in coordinates]  # Swapped x and y
+        return coordinates  # Coordinates are already in (x, y) order
     elif dimension == 3:
-        return [(y, x, z) for x, y, z in coordinates]  # Swapped x and y, keep z
+        return coordinates
     else:
-        return [(y, x) for x, y in coordinates]  # Swapped x and y
-    
+        return coordinates
+
 def force_2d(geom):
     """
     Fjerner Z-dimensjonen fra en geometritype som har 3D-koordinater, og konverterer geometrien til 2D.
-    Funksjonen støtter punkt, linje, og polygon-geometrier. Koordinatene blir også ombyttet slik at de returneres som (y, x).
+    Funksjonen støtter punkt, linje, og polygon-geometrier.
 
     Args:
         geom (shapely.geometry): Shapely-geometriobjekt som kan være et punkt, linje, eller polygon.
 
     Returns:
-        shapely.geometry: Geometriobjekt konvertert til 2D med (y, x) koordinater.
+        shapely.geometry: Geometriobjekt konvertert til 2D.
                          Returnerer originalgeometrien hvis den allerede er 2D.
     """
     if geom.has_z:
         if isinstance(geom, shapely.geometry.Point):
-            return shapely.geometry.Point(geom.y, geom.x)  # Swapped x and y
+            return shapely.geometry.Point(geom.x, geom.y)  # No swap
         elif isinstance(geom, shapely.geometry.LineString):
-            return shapely.geometry.LineString([(y, x) for x, y, z in geom.coords])  # Swapped x and y
+            return shapely.geometry.LineString([(x, y) for x, y, z in geom.coords])  # No swap
         elif isinstance(geom, shapely.geometry.Polygon):
-            exterior = [(y, x) for x, y, z in geom.exterior.coords]  # Swapped x and y
-            interiors = [[(y, x) for x, y, z in interior.coords] for interior in geom.interiors]  # Swapped x and y
+            exterior = [(x, y) for x, y, z in geom.exterior.coords]  # No swap
+            interiors = [[(x, y) for x, y, z in interior.coords] for interior in geom.interiors]  # No swap
             return shapely.geometry.Polygon(exterior, interiors)
     return geom
 
@@ -342,8 +342,8 @@ def write_geodataframe_to_sosi(gdf, sosi_index, output_filepath, extent, enhet_s
             # Write the SOSI file header
             logger.info("SOSILOGIKK: Skriver .HODE seksjon...")
             outfile.write(".HODE\n..TEGNSETT UTF-8\n..OMRÅDE\n")
-            outfile.write(f"...MIN-NØ {min_e:.2f} {min_n:.2f}\n")  # Reversert rekkefølge for FYSAK
-            outfile.write(f"...MAX-NØ {max_e:.2f} {max_n:.2f}\n")  # Reversert rekkefølge for FYSAK
+            outfile.write(f"...MIN-NØ {min_n:.2f} {min_e:.2f}\n")
+            outfile.write(f"...MAX-NØ {max_n:.2f} {max_e:.2f}\n")
             
             if enhet_scale is not None:
                 enhet_str = f"{enhet_scale:.6f}".rstrip('0').rstrip('.')
@@ -386,13 +386,13 @@ def write_geodataframe_to_sosi(gdf, sosi_index, output_filepath, extent, enhet_s
                     if geom.geom_type == 'Polygon':
                         outfile.write("..FLATE\n")
                         for x, y in geom.exterior.coords:
-                            outfile.write(f"...KURVE {x:.2f} {y:.2f}\n")  # Swapped order
+                            outfile.write(f"...KURVE {y:.2f} {x:.2f}\n")  # Swap x and y
                     elif geom.geom_type == 'LineString':
                         outfile.write("..KURVE\n")
                         for x, y in geom.coords:
-                            outfile.write(f"...KURVE {x:.2f} {y:.2f}\n")  # Swapped order
+                            outfile.write(f"...KURVE {y:.2f} {x:.2f}\n")  # Swap x and y
                     elif geom.geom_type == 'Point':
-                        outfile.write(f"..PUNKT {geom.x:.2f} {geom.y:.2f}\n")  # Swapped order
+                        outfile.write(f"..PUNKT {geom.y:.2f} {geom.x:.2f}\n")  # Swap x and y
                     
                     outfile.write("..NØ\n")
 
