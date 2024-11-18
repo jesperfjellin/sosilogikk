@@ -10,6 +10,10 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logging.getLogger('matplotlib.font_manager').disabled = True
 logger = logging.getLogger()
 
+__version__ = '1.0.15'
+logger = logging.getLogger(__name__)
+logger.info(f"sosilogikk version: {__version__}")
+
 def read_sosi_file(filepath):
     """
     Leser en SOSI-fil og returnerer geometri, attributter, ...ENHET-verdi, og en indeks for hvert objekt.
@@ -21,7 +25,7 @@ def read_sosi_file(filepath):
         dict: Data med 'geometry' og 'attributes'.
         set: Alle attributter skriptet kommer over.
         float: Unit scale (fra ...ENHET).
-        dict: SOSI index mapping av objekt ID til original_context (posisjon i innlest SOSI-fil.
+        dict: SOSI index mapping av objekt ID til original_context (posisjon i innlest SOSI-fil).
         tuple: MIN-NØ og MAX-NØ verdier (min_n, min_e, max_n, max_e).
     """
   
@@ -53,19 +57,45 @@ def read_sosi_file(filepath):
         with open(filepath, 'r', encoding='utf-8') as file:
             for line_number, line in enumerate(file, 1):
                 stripped_line = line.strip()
+
+                # **New Code Start**: Skip lines consisting only of exclamation marks
+                if stripped_line.startswith('!'):
+                    if all(char == '!' for char in stripped_line):
+                        # Log the skipping of the line if needed
+                        #logger.debug(f"Skipping line {line_number}: Line consists only of exclamation marks.")
+                        continue  # Skip this line
+
                 current_object.append(line)
 
                 if stripped_line.startswith('...MIN-NØ'):
-                    _, min_n, min_e = stripped_line.split()
-                    min_n, min_e = float(min_n), float(min_e)
+                    try:
+                        parts = stripped_line.split()
+                        if len(parts) < 3:
+                            raise IndexError("...MIN-NØ line does not have enough parts.")
+                        _, min_n_str, min_e_str = parts
+                        min_n, min_e = float(min_n_str), float(min_e_str)
+                    except (ValueError, IndexError) as e:
+                        logger.error(f"SOSILOGIKK: Error parsing MIN-NØ at line {line_number}: {line.strip()} - {e}")
+                        raise
+
                 elif stripped_line.startswith('...MAX-NØ'):
-                    _, max_n, max_e = stripped_line.split()
-                    max_n, max_e = float(max_n), float(max_e)
+                    try:
+                        parts = stripped_line.split()
+                        if len(parts) < 3:
+                            raise IndexError("...MAX-NØ line does not have enough parts.")
+                        _, max_n_str, max_e_str = parts
+                        max_n, max_e = float(max_n_str), float(max_e_str)
+                    except (ValueError, IndexError) as e:
+                        logger.error(f"SOSILOGIKK: Error parsing MAX-NØ at line {line_number}: {line.strip()} - {e}")
+                        raise
                 
                 # Henter ...ENHET-verdi
                 if stripped_line.startswith('...ENHET'):
                     try:
-                        enhet_scale = float(stripped_line.split()[1])
+                        parts = stripped_line.split()
+                        if len(parts) < 2:
+                            raise IndexError("...ENHET line does not have enough parts.")
+                        enhet_scale = float(parts[1])
                         #logger.info(f"Extracted scale factor ...ENHET: {enhet_scale}")
                     except (IndexError, ValueError) as e:
                         logger.error(f"SOSILOGIKK: Error innlesing ...ENHET verdi på linje {line_number}: {line.strip()} - {e}")
@@ -78,9 +108,21 @@ def read_sosi_file(filepath):
                             if coordinates and current_attributes:  
                                 uniform_coordinates = convert_to_2d_if_mixed(coordinates, coordinate_dim)
                                 if geom_type == '.KURVE':
-                                    kurve_id = current_attributes.get('OBJTYPE', '').split()[-1]
+                                    objtype_value = current_attributes.get('OBJTYPE', '')
+                                    if objtype_value:
+                                        kurve_id = objtype_value.split()[-1]
+                                    else:
+                                        if current_attributes.get('ENDRET', '') == 'H':
+                                            # Handle the special case where ..ENDRET H is present
+                                            kurve_id = f"kurve_{object_id}"
+                                            logger.info(f"SOSILOGIKK: .KURVE object at line {line_number} has ..ENDRET H and missing ..OBJTYPE. Assigned ID: {kurve_id}.")
+                                        else:
+                                            logger.error(f"SOSILOGIKK: Missing OBJTYPE for KURVE at line {line_number} without ..ENDRET H.")
+                                            raise ValueError(f"SOSILOGIKK: OBJTYPE missing in KURVE at line {line_number} and not marked as deleted with ..ENDRET H.")
+
                                     if kurve_id:
                                         kurve_coordinates[kurve_id] = uniform_coordinates
+
                                     parsed_data['geometry'].append(LineString(uniform_coordinates))
                                     parsed_data['attributes'].append(current_attributes)
                                 elif geom_type == '.PUNKT':
@@ -106,7 +148,7 @@ def read_sosi_file(filepath):
                             sosi_index[object_id] = current_object
                             object_id += 1  # Inkrementerer objekt ID for neste objekt med 1
                         except Exception as e:
-                            logger.error(f"SOSILOGIKK: Error linje: {line_number}: {line.strip()}")
+                            logger.error(f"SOSILOGIKK: Error processing object ending at line {line_number}: {line.strip()}")
                             logger.error(f"SOSILOGIKK: Error detaljer: {e}")
                             raise
 
@@ -141,15 +183,28 @@ def read_sosi_file(filepath):
                         try:
                             parts = stripped_line.split()
                             if coordinate_dim == 2:
-                                coord = (float(parts[1]), float(parts[0]))  # Swapped order
+                                if len(parts) < 2:
+                                    raise IndexError("Not enough coordinate components for 2D point.")
+                                x_str, y_str = parts[0], parts[1]
+                                coord = (float(y_str), float(x_str))  # Swapped order
                                 found_2d = True
                             else:
-                                coord = (float(parts[1]), float(parts[0]), float(parts[2]))  # Swapped x and y, keep z
+                                if len(parts) < 3:
+                                    raise IndexError("Not enough coordinate components for 3D point.")
+                                x_str, y_str, z_str = parts[0], parts[1], parts[2]
+                                coord = (float(y_str), float(x_str), float(z_str))  # Swapped x and y, keep z
                             coordinates.append(coord)
-                        except ValueError:
-                            pass
+                        except (ValueError, IndexError) as e:
+                            logger.error(f"SOSILOGIKK: Error parsing coordinates at line {line_number} in object {geom_type}: {line.strip()} - {e}")
+                            raise
                     elif stripped_line.startswith('.') and not stripped_line.startswith('..'):
                         expecting_coordinates = False  
+                    else:
+                        # If the line does not start with '.', '..', and we are not expecting coordinates, it could be a flate reference
+                        if geom_type == '.FLATE' and stripped_line.startswith('KP'):
+                            flate_refs.append(stripped_line)
+                else:
+                    continue  # If not capturing, skip to the next line
 
         # Sjekker om SOSI-fil mangler ...ENHET-verdi
         if enhet_scale is None:
