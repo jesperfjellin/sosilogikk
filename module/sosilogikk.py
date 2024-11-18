@@ -115,7 +115,7 @@ def read_sosi_file(filepath):
                                         if current_attributes.get('ENDRET', '') == 'H':
                                             # Handle the special case where ..ENDRET H is present
                                             kurve_id = f"kurve_{object_id}"
-                                            logger.info(f"SOSILOGIKK: .KURVE object at line {line_number} has ..ENDRET H and missing ..OBJTYPE. Assigned ID: {kurve_id}.")
+                                            #logger.info(f"SOSILOGIKK: .KURVE object at line {line_number} has ..ENDRET H and missing ..OBJTYPE. Assigned ID: {kurve_id}.")
                                         else:
                                             logger.error(f"SOSILOGIKK: Missing OBJTYPE for KURVE at line {line_number} without ..ENDRET H.")
                                             raise ValueError(f"SOSILOGIKK: OBJTYPE missing in KURVE at line {line_number} and not marked as deleted with ..ENDRET H.")
