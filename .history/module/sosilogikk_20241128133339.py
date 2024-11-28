@@ -64,48 +64,9 @@ def read_sosi_file(filepath):
         'SOSI-NIVÅ': None,
         'OBJEKTKATALOG': None
     }
-    
-    encoding_map = {
-        'ISO8859-10': 'iso-8859-10',
-        'ISO8859-1': 'iso-8859-1',
-        'UTF-8': 'utf-8-sig',
-        'ANSI': 'cp1252'
-        # Add more mappings as needed
-    }
 
-    # Default to UTF-8 for initial read to get TEGNSETT
-    file_encoding = 'utf-8-sig'
-    
     try:
-        # First try to read the header with UTF-8 to find TEGNSETT
         with open(filepath, 'r', encoding='utf-8-sig') as file:
-            for line in file:
-                if line.strip().startswith('..TEGNSETT'):
-                    specified_encoding = line.strip().split()[-1]
-                    file_encoding = encoding_map.get(specified_encoding, 'utf-8-sig')
-                    logger.info(f"SOSILOGIKK: Found character encoding: {specified_encoding}, using: {file_encoding}")
-                    break
-                if line.strip().startswith('.KURVE') or line.strip().startswith('.PUNKT'):
-                    # If we hit geometry without finding TEGNSETT, stop looking
-                    break
-    except UnicodeDecodeError:
-        # If UTF-8 fails, try ISO-8859-1 to read TEGNSETT
-        try:
-            with open(filepath, 'r', encoding='iso-8859-1') as file:
-                for line in file:
-                    if line.strip().startswith('..TEGNSETT'):
-                        specified_encoding = line.strip().split()[-1]
-                        file_encoding = encoding_map.get(specified_encoding, 'iso-8859-1')
-                        logger.info(f"SOSILOGIKK: Found character encoding: {specified_encoding}, using: {file_encoding}")
-                        break
-                    if line.strip().startswith('.KURVE') or line.strip().startswith('.PUNKT'):
-                        break
-        except UnicodeDecodeError:
-            logger.warning("SOSILOGIKK: Could not read TEGNSETT, defaulting to ISO-8859-1")
-            file_encoding = 'iso-8859-1'
-
-    try:
-        with open(filepath, 'r', encoding=file_encoding) as file:
             in_header = False
             current_section = None
             #logger.debug("Starting to read file...")
@@ -120,7 +81,7 @@ def read_sosi_file(filepath):
                 # Start header section
                 if stripped_line == '.HODE':
                     in_header = True
-                    #logger.debug("Found .HODE section")
+                    logger.debug("Found .HODE section")
                     continue
 
                 # End header section if we hit a geometric object or end of file
@@ -192,11 +153,11 @@ def read_sosi_file(filepath):
                     if stripped_line.startswith('..') and not stripped_line.startswith('...'):
                         # Two-dot line indicates a new section
                         current_section = stripped_line.split()[0]
-                        #logger.debug(f"Found header section: {current_section}")
+                        logger.debug(f"Found header section: {current_section}")
                     elif stripped_line.startswith('...'):
                         # Three-dot line is an attribute of current section
                         attr_name, attr_value = stripped_line[3:].split(maxsplit=1)
-                        #logger.debug(f"Processing header attribute: {attr_name} = {attr_value} in section {current_section}")
+                        logger.debug(f"Processing header attribute: {attr_name} = {attr_value} in section {current_section}")
                         
                         if current_section == '..TRANSPAR':
                             if attr_name == 'ENHET':

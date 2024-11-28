@@ -64,70 +64,95 @@ def read_sosi_file(filepath):
         'SOSI-NIVÅ': None,
         'OBJEKTKATALOG': None
     }
-    
-    encoding_map = {
-        'ISO8859-10': 'iso-8859-10',
-        'ISO8859-1': 'iso-8859-1',
-        'UTF-8': 'utf-8-sig',
-        'ANSI': 'cp1252'
-        # Add more mappings as needed
-    }
 
-    # Default to UTF-8 for initial read to get TEGNSETT
-    file_encoding = 'utf-8-sig'
-    
     try:
-        # First try to read the header with UTF-8 to find TEGNSETT
         with open(filepath, 'r', encoding='utf-8-sig') as file:
-            for line in file:
-                if line.strip().startswith('..TEGNSETT'):
-                    specified_encoding = line.strip().split()[-1]
-                    file_encoding = encoding_map.get(specified_encoding, 'utf-8-sig')
-                    logger.info(f"SOSILOGIKK: Found character encoding: {specified_encoding}, using: {file_encoding}")
-                    break
-                if line.strip().startswith('.KURVE') or line.strip().startswith('.PUNKT'):
-                    # If we hit geometry without finding TEGNSETT, stop looking
-                    break
-    except UnicodeDecodeError:
-        # If UTF-8 fails, try ISO-8859-1 to read TEGNSETT
-        try:
-            with open(filepath, 'r', encoding='iso-8859-1') as file:
-                for line in file:
-                    if line.strip().startswith('..TEGNSETT'):
-                        specified_encoding = line.strip().split()[-1]
-                        file_encoding = encoding_map.get(specified_encoding, 'iso-8859-1')
-                        logger.info(f"SOSILOGIKK: Found character encoding: {specified_encoding}, using: {file_encoding}")
-                        break
-                    if line.strip().startswith('.KURVE') or line.strip().startswith('.PUNKT'):
-                        break
-        except UnicodeDecodeError:
-            logger.warning("SOSILOGIKK: Could not read TEGNSETT, defaulting to ISO-8859-1")
-            file_encoding = 'iso-8859-1'
-
-    try:
-        with open(filepath, 'r', encoding=file_encoding) as file:
             in_header = False
             current_section = None
-            #logger.debug("Starting to read file...")
+            logger.debug("Starting to read file...")
             
             for line_number, line in enumerate(file, 1):
                 stripped_line = line.strip()
+                #logger.debug(f"Processing line {line_number}: {stripped_line}")
 
                 # Skip comment lines
                 if stripped_line.startswith('!'):
-                    continue
+                    if all(char == '!' for char in stripped_line):
+                        logger.debug("Skipping comment line")
+                        continue
 
-                # Start header section
+                # Start capturing header information
                 if stripped_line == '.HODE':
                     in_header = True
-                    #logger.debug("Found .HODE section")
+                    current_section = 'HODE'
+                    logger.debug("Found .HODE section")
                     continue
 
-                # End header section if we hit a geometric object or end of file
-                if stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE', '.SLUTT')):
-                    #logger.debug("Exiting header section")
-                    in_header = False
-                    # Continue with geometric object processing
+                # Process header sections
+                if in_header:
+                    logger.debug(f"Processing header line in section {current_section}: {stripped_line}")
+                    
+                    # Exit header section when we hit a new main section
+                    if stripped_line.startswith('.') and not stripped_line.startswith('..'):
+                        if stripped_line != '.HODE':
+                            logger.debug("Exiting header section")
+                            in_header = False
+                            current_section = None
+                            continue
+
+                    # Handle two-dot sections (like ..TRANSPAR)
+                    if stripped_line.startswith('..'):
+                        current_section = stripped_line[2:].split()[0]
+                        logger.debug(f"Entering new section: {current_section}")
+                        continue
+
+                    # Handle three-dot attributes
+                    if stripped_line.startswith('...'):
+                        parts = stripped_line[3:].split(maxsplit=1)
+                        if len(parts) == 2:
+                            attr_name, attr_value = parts
+                            logger.debug(f"Processing attribute {attr_name} = {attr_value} in section {current_section}")
+                            
+                            if current_section == 'TRANSPAR':
+                                if attr_name == 'ENHET':
+                                    try:
+                                        enhet_scale = float(attr_value)
+                                        header_metadata['ENHET'] = enhet_scale
+                                        logger.debug(f"Set ENHET value to {enhet_scale}")
+                                        logger.info(f"Found ENHET value: {enhet_scale}")
+                                    except ValueError as e:
+                                        logger.error(f"Error parsing ENHET value: {attr_value}")
+                                        raise
+                                elif attr_name == 'VERT-DATUM':
+                                    header_metadata['VERT-DATUM'] = attr_value
+                                elif attr_name == 'KOORDSYS':
+                                    header_metadata['KOORDSYS'] = attr_value
+                                elif attr_name == 'ORIGO-NØ':
+                                    header_metadata['ORIGO-NØ'] = attr_value
+                            elif current_section == 'OMRÅDE':
+                                if attr_name == 'MIN-NØ':
+                                    parts = attr_value.split()
+                                    min_n, min_e = float(parts[0]), float(parts[1])
+                                elif attr_name == 'MAX-NØ':
+                                    parts = attr_value.split()
+                                    max_n, max_e = float(parts[0]), float(parts[1])
+                                        logger.debug(f"Set MAX-NØ to {max_n}, {max_e}")
+                                    except (ValueError, IndexError) as e:
+                                        logger.error(f"Error parsing MAX-NØ: {attr_value}")
+                                        raise
+                        continue
+
+                    # Handle two-dot attributes in HODE
+                    elif current_section == 'HODE':
+                        if stripped_line.startswith('..SOSI-VERSJON'):
+                            header_metadata['SOSI-VERSJON'] = stripped_line.split(maxsplit=1)[1]
+                        elif stripped_line.startswith('..SOSI-NIVÅ'):
+                            header_metadata['SOSI-NIVÅ'] = stripped_line.split(maxsplit=1)[1]
+                        elif stripped_line.startswith('..OBJEKTKATALOG'):
+                            header_metadata['OBJEKTKATALOG'] = stripped_line.split(maxsplit=1)[1]
+
+                # Process geometric objects
+                elif stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE')):
                     if capturing:
                         try:
                             if coordinates and current_attributes:
@@ -187,36 +212,7 @@ def read_sosi_file(filepath):
                     current_object = [line]
                     continue
 
-                # Process header content
-                if in_header:
-                    if stripped_line.startswith('..') and not stripped_line.startswith('...'):
-                        # Two-dot line indicates a new section
-                        current_section = stripped_line.split()[0]
-                        #logger.debug(f"Found header section: {current_section}")
-                    elif stripped_line.startswith('...'):
-                        # Three-dot line is an attribute of current section
-                        attr_name, attr_value = stripped_line[3:].split(maxsplit=1)
-                        #logger.debug(f"Processing header attribute: {attr_name} = {attr_value} in section {current_section}")
-                        
-                        if current_section == '..TRANSPAR':
-                            if attr_name == 'ENHET':
-                                enhet_scale = float(attr_value)
-                                header_metadata['ENHET'] = enhet_scale
-                                logger.info(f"Found ENHET value: {enhet_scale}")
-                            elif attr_name == 'VERT-DATUM':
-                                header_metadata['VERT-DATUM'] = attr_value
-                            elif attr_name == 'KOORDSYS':
-                                header_metadata['KOORDSYS'] = attr_value
-                            elif attr_name == 'ORIGO-NØ':
-                                header_metadata['ORIGO-NØ'] = attr_value
-                        elif current_section == '..OMRÅDE':
-                            if attr_name == 'MIN-NØ':
-                                min_n, min_e = map(float, attr_value.split())
-                            elif attr_name == 'MAX-NØ':
-                                max_n, max_e = map(float, attr_value.split())
-                    continue
-
-                # Rest of the existing code for capturing attributes and coordinates
+                # Capture attributes and coordinates
                 if capturing:
                     current_object.append(line)
                     if stripped_line.startswith('..'):
@@ -300,7 +296,7 @@ def read_sosi_file(filepath):
 def convert_to_2d_if_mixed(coordinates, dimension):
     """
     Konverterer blandete geometrier (geometri med både 2D- og 3D-koordinater) til ren 2D-geometri.
-    Dette er nødvendig for å laste geometrien inn i en GeoPandas GeoDataFrame, som krever 2D-geometri for �� fungere korrekt.
+    Dette er nødvendig for å laste geometrien inn i en GeoPandas GeoDataFrame, som krever 2D-geometri for å fungere korrekt.
 
     Args:
         coordinates (list): Liste over koordinater (som kan være 2D eller 3D).

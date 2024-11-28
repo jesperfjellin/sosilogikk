@@ -105,7 +105,7 @@ def read_sosi_file(filepath):
             file_encoding = 'iso-8859-1'
 
     try:
-        with open(filepath, 'r', encoding=file_encoding) as file:
+        with open(filepath, 'r', encoding='utf-8-sig') as file:
             in_header = False
             current_section = None
             #logger.debug("Starting to read file...")
