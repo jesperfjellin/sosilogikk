@@ -14,7 +14,7 @@
 
 Logikk for å bruke Python biblioteker som Geopandas, Shapely, Fiona etc på .SOS-filer. sosilogikk.py i mappen module definerer en logikk for å bryte opp en .SOS-fil i objektsegmenter som kan lastes inn i en Geopandas dataframe. 
 
-28/05/2025: sosilogikk er ikke under aktiv utvikling, men hvis det er nødvendige bugfixes/manglende funksjonalitet, lag gjerne en pull request/fork repoet. 
+28/05/2025: sosilogikk er ikke under aktiv utvikling, men hvis det er nødvendige bugfixes/manglende funksjonalitet, lag gjerne en pull request/fork repoet. sosilogikk skal være kompatibel med siste utgave av sosi-formatet/FKB 5.0.
 
 # Installering
 Pakken installeres gjennom programvarelageret PyPi:
