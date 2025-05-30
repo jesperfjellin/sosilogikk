@@ -132,6 +132,8 @@ def read_sosi_file(filepath):
                         try:
                             if coordinates and current_attributes:
                                 uniform_coordinates = convert_to_2d_if_mixed(coordinates, coordinate_dim)
+                                if stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE')):
+                                    current_attributes['SOSI_REF'] = stripped_line.split(' ')[1][:-1]
                                 if geom_type == '.KURVE':
                                     objtype_value = current_attributes.get('OBJTYPE', '')
                                     if objtype_value:
