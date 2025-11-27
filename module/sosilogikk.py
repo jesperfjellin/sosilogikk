@@ -10,24 +10,144 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logging.getLogger('matplotlib.font_manager').disabled = True
 logger = logging.getLogger()
 
-__version__ = '1.0.17'
+__version__ = '2.0.0'
 logger = logging.getLogger(__name__)
 logger.info(f"sosilogikk version: {__version__}")
 
-def read_sosi_file(filepath):
+
+# ============================================================================
+# PUBLIC API
+# ============================================================================
+
+def read_sosi(filepath, return_metadata=False):
+    """
+    Les en eller flere SOSI-filer og returner en GeoDataFrame.
+
+    Dette er hovedfunksjonen for å laste SOSI-filer. Den håndterer automatisk
+    parsing, koordinattransformasjon og konvertering til GeoDataFrame.
+
+    Args:
+        filepath (str or list): Sti til en SOSI-fil, eller liste med stier til flere filer.
+        return_metadata (bool): Om metadata skal returneres sammen med GeoDataFrame.
+
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame med geometri og attributter fra SOSI-fil(ene).
+        dict (optional): Metadata hvis return_metadata=True. Inneholder:
+            - 'enhet_scale': float, enhetsskala fra ...ENHET
+            - 'extent': tuple (min_n, min_e, max_n, max_e)
+            - 'header': dict med VERT-DATUM, KOORDSYS, etc.
+            - 'sosi_index': dict, mapping av objekt ID til original context
+            - 'all_attributes': set med alle attributter
+
+    Examples:
+        >>> # Les en enkelt fil
+        >>> gdf = read_sosi('data.sos')
+
+        >>> # Les flere filer og kombiner dem
+        >>> gdf = read_sosi(['file1.sos', 'file2.sos'])
+
+        >>> # Les med metadata
+        >>> gdf, metadata = read_sosi('data.sos', return_metadata=True)
+    """
+    # Håndter enkeltfil vs. liste av filer
+    if isinstance(filepath, str):
+        filepaths = [filepath]
+    else:
+        filepaths = filepath
+
+    # Les alle filene
+    sosi_data_list = []
+    all_attributes_list = []
+    scale_factors = []
+    sosi_indexes = {}
+    header_metadatas = []
+
+    for idx, fp in enumerate(filepaths):
+        result = _read_sosi_file(fp)
+        sosi_data_list.append(result['data'])
+        all_attributes_list.append(result['all_attributes'])
+        scale_factors.append(result['enhet_scale'])
+        sosi_indexes[idx] = result['sosi_index']
+        header_metadatas.append(result['header_metadata'])
+
+    # Konverter til GeoDataFrame
+    gdf, extent = _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors)
+
+    if return_metadata:
+        # Kombiner metadata fra alle filer
+        # For enkelhet, bruk metadata fra første fil for header info
+        metadata = {
+            'enhet_scale': scale_factors[0] if len(scale_factors) == 1 else scale_factors,
+            'extent': extent,
+            'header': header_metadatas[0] if len(header_metadatas) == 1 else header_metadatas,
+            'sosi_index': sosi_indexes[0] if len(sosi_indexes) == 1 else sosi_indexes,
+            'all_attributes': set.union(*all_attributes_list)
+        }
+        return gdf, metadata
+    else:
+        return gdf
+
+
+def write_sosi(gdf, output_filepath, metadata=None, use_index=True):
+    """
+    Skriv en GeoDataFrame til en SOSI-fil.
+
+    Args:
+        gdf (gpd.GeoDataFrame): GeoDataFrame som skal skrives til SOSI-format.
+        output_filepath (str): Sti hvor SOSI-filen skal skrives.
+        metadata (dict, optional): Metadata fra read_sosi() med header info.
+                                   Hvis None, brukes standardverdier.
+        use_index (bool): Om SOSI-indeks skal brukes for skriving (standard True).
+
+    Returns:
+        bool: True hvis filen ble skrevet vellykket, False ellers.
+
+    Examples:
+        >>> # Les, modifiser, og skriv tilbake
+        >>> gdf, metadata = read_sosi('input.sos', return_metadata=True)
+        >>> gdf['new_attribute'] = 'value'
+        >>> write_sosi(gdf, 'output.sos', metadata=metadata)
+    """
+    # Pakk ut metadata hvis det finnes
+    if metadata is not None:
+        header_metadata = metadata.get('header', {})
+        extent = metadata.get('extent', None)
+        sosi_index = metadata.get('sosi_index', None)
+    else:
+        # Use empty dict for header_metadata so default values are used
+        header_metadata = {}
+        extent = None
+        sosi_index = None
+
+    return _write_geodataframe_to_sosi(
+        gdf,
+        output_filepath,
+        metadata=header_metadata,
+        sosi_index=sosi_index,
+        extent=extent,
+        use_index=use_index
+    )
+
+
+# ============================================================================
+# INTERNAL FUNCTIONS
+# ============================================================================
+
+def _read_sosi_file(filepath):
     """
     Leser en SOSI-fil og returnerer geometri, attributter, ...ENHET-verdi, og en indeks for hvert objekt.
-    
+
     Args:
         filepath (str): Sti til SOSI-fil.
-    
+
     Returns:
-        dict: Data med 'geometry' og 'attributes'.
-        set: Alle attributter skriptet kommer over.
-        float: Unit scale (fra ...ENHET).
-        dict: SOSI index mapping av objekt ID til original_context.
-        tuple: MIN-NØ og MAX-NØ verdier (min_n, min_e, max_n, max_e).
-        dict: Header metadata including VERT-DATUM, KOORDSYS, etc.
+        dict: Dictionary med følgende nøkler:
+            - 'data': dict med 'geometry' og 'attributes'
+            - 'all_attributes': set med alle attributter
+            - 'enhet_scale': float, unit scale fra ...ENHET
+            - 'sosi_index': dict, mapping av objekt ID til original context
+            - 'extent': tuple (min_n, min_e, max_n, max_e)
+            - 'header_metadata': dict med VERT-DATUM, KOORDSYS, etc.
     """
     
     parsed_data = {
@@ -131,7 +251,7 @@ def read_sosi_file(filepath):
                     if capturing:
                         try:
                             if coordinates and current_attributes:
-                                uniform_coordinates = convert_to_2d_if_mixed(coordinates, coordinate_dim)
+                                uniform_coordinates = _convert_to_2d_if_mixed(coordinates, coordinate_dim)
                                 if stripped_line.startswith(('.KURVE', '.PUNKT', '.FLATE')):
                                     current_attributes['SOSI_REF'] = stripped_line.split(' ')[1][:-1]
                                 if geom_type == '.KURVE':
@@ -239,14 +359,18 @@ def read_sosi_file(filepath):
                             if coordinate_dim == 2:
                                 if len(parts) < 2:
                                     raise IndexError("Not enough coordinate components for 2D point.")
-                                x_str, y_str = parts[0], parts[1]
-                                coord = (float(y_str), float(x_str))
+                                # SOSI format: parts[0] is North, parts[1] is East
+                                n_str, e_str = parts[0], parts[1]
+                                # Store as (East, North) = (x, y) for shapely
+                                coord = (float(e_str), float(n_str))
                                 found_2d = True
                             else:
                                 if len(parts) < 3:
                                     raise IndexError("Not enough coordinate components for 3D point.")
-                                x_str, y_str, z_str = parts[0], parts[1], parts[2]
-                                coord = (float(y_str), float(x_str), float(z_str))
+                                # SOSI format: parts[0] is North, parts[1] is East, parts[2] is Height
+                                n_str, e_str, h_str = parts[0], parts[1], parts[2]
+                                # Store as (East, North, Height) = (x, y, z) for shapely
+                                coord = (float(e_str), float(n_str), float(h_str))
                             coordinates.append(coord)
                         except (ValueError, IndexError) as e:
                             logger.error(f"SOSILOGIKK: Error parsing coordinates at line {line_number} in object {geom_type}: {line.strip()} - {e}")
@@ -296,10 +420,17 @@ def read_sosi_file(filepath):
         logger.error(f"SOSILOGIKK: En error oppstod i read_sosi_file funksjon: {str(e)}")
         raise
 
-    return parsed_data, all_attributes, enhet_scale, sosi_index, (min_n, min_e, max_n, max_e), header_metadata
+    return {
+        'data': parsed_data,
+        'all_attributes': all_attributes,
+        'enhet_scale': enhet_scale,
+        'sosi_index': sosi_index,
+        'extent': (min_n, min_e, max_n, max_e),
+        'header_metadata': header_metadata
+    }
 
 
-def convert_to_2d_if_mixed(coordinates, dimension):
+def _convert_to_2d_if_mixed(coordinates, dimension):
     """
     Konverterer blandete geometrier (geometri med både 2D- og 3D-koordinater) til ren 2D-geometri.
     Dette er nødvendig for å laste geometrien inn i en GeoPandas GeoDataFrame, som krever 2D-geometri for �� fungere korrekt.
@@ -314,13 +445,16 @@ def convert_to_2d_if_mixed(coordinates, dimension):
     """
     has_2d = any(len(coord) == 2 for coord in coordinates)
     if has_2d:
-        return [(y, x) for x, y, *z in coordinates]  # Swapped x and y
+        # Swap from (East, North, ...) to (North, East)
+        return [(y, x) for x, y, *z in coordinates]
     elif dimension == 3:
-        return [(y, x, z) for x, y, z in coordinates]  # Swapped x and y, keep z
+        # Swap from (East, North, Height) to (North, East, Height)
+        return [(y, x, z) for x, y, z in coordinates]
     else:
-        return [(y, x) for x, y in coordinates]  # Swapped x and y
+        # Swap from (East, North) to (North, East)
+        return [(y, x) for x, y in coordinates]
     
-def force_2d(geom):
+def _force_2d(geom):
     """
     Fjerner Z-dimensjonen fra en geometritype som har 3D-koordinater, og konverterer geometrien til 2D.
     Funksjonen støtter punkt, linje, og polygon-geometrier. Koordinatene blir også ombyttet slik at de returneres som (y, x).
@@ -344,7 +478,7 @@ def force_2d(geom):
     return geom
 
 
-def sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
+def _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
     """
     Konverterer parsede SOSI-data til en GeoDataFrame, og håndterer flere input-filer hvis gitt.
 
@@ -379,7 +513,7 @@ def sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
             attributes = attributes[:min_length]
 
         # Anvender ...ENHET verdi (scale_factor) på geometri
-        scaled_geometries = scale_geometries(geometries, scale_factor)
+        scaled_geometries = _scale_geometries(geometries, scale_factor)
 
         # Lager DataFrame fra attributter
         df = pd.DataFrame(attributes)
@@ -411,7 +545,7 @@ def sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors):
     return combined_gdf, (overall_min_n, overall_min_e, overall_max_n, overall_max_e)
 
 
-def scale_geometries(geometries, scale_factor=1.0):
+def _scale_geometries(geometries, scale_factor=1.0):
     """
     Skalerer geometrier i henhold til den oppgitte skaleringsfaktoren.
 
@@ -433,7 +567,7 @@ def scale_geometries(geometries, scale_factor=1.0):
     return scaled_geometries
 
 
-def write_geodataframe_to_sosi(gdf, output_file, metadata=None, sosi_index=None, extent=None, use_index=True):
+def _write_geodataframe_to_sosi(gdf, output_file, metadata=None, sosi_index=None, extent=None, use_index=True):
     """
     Skriver en GeoDataFrame tilbake til en SOSI-fil.
 
