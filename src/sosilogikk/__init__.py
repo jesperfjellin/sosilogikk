@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logging.getLogger('matplotlib.font_manager').disabled = True
 logger = logging.getLogger()
 
-__version__ = '2.0.0'
+__version__ = '2.0.1'
 logger = logging.getLogger(__name__)
 logger.info(f"sosilogikk version: {__version__}")
 

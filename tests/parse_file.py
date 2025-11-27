@@ -4,12 +4,14 @@ from pathlib import Path
 import logging
 import sys
 
-# Ensure the project root is on the path so we can import the local package
+# Ensure the project src/ is on the path so we can import the local package when not installed
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+SRC_ROOT = PROJECT_ROOT / "src"
+for p in (SRC_ROOT, PROJECT_ROOT):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
-from src.sosilogikk import read_sosi
+from sosilogikk import read_sosi
 
 
 def main() -> None:
