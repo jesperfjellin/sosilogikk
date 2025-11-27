@@ -1,0 +1,33 @@
+# Bytecode / caches
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+PKG-INFO
+
+# Tooling / lock
+uv.lock
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Project data/output
+tests/data/*.sos
+tests/output/
+tests/data/output/
