@@ -4,31 +4,29 @@
   <img src="./images/sosilogikk.jpg" alt="Project Logo" width="400"/>
 </div>
 
-<div align="center">
-
-
-  
-</div>
-
 ---
 
-Logikk for å bruke Python biblioteker som Geopandas, Shapely, Fiona etc på .SOS-filer. sosilogikk.py i mappen module definerer en logikk for å bryte opp en .SOS-fil i objektsegmenter som kan lastes inn i en Geopandas dataframe. 
+sosilogikk is a small utility to read Norwegian SOSI vector files (FKB 5.x) into GeoPandas, and write them back out. It handles the SOSI header, encoding, ENHET scaling, KOORDSYS→EPSG mapping, and assembles geometries (points, curves, polygons).
 
-28/05/2025: sosilogikk er ikke under aktiv utvikling, men hvis det er nødvendige bugfixes/manglende funksjonalitet, lag gjerne en pull request/fork repoet. sosilogikk skal være kompatibel med siste utgave av sosi-formatet/FKB 5.0.
-
-# Installering
-Pakken installeres gjennom programvarelageret PyPi:
+## Install
 
 ```bash
 pip install sosilogikk
 ```
 
-Alt som trengs for å laste SOSI-data inn i en GeoDataFrame er fire linjer med kode:
-<div align="center">
-  <img src="./images/Eksempel.png" alt="Example"/>
-</div>
-Resultatet er en GeoDataFrame som er kompatibel med det meste av Python GIS-pakker (GDAL, Shapely, Fiona, osv):<br><br>
+## Minimal example: SOSI → GeoJSON
 
-<div align="center">
-  <img src="./images/gdf.png" alt="GDF"/>
-</div>
+```python
+from sosilogikk import read_sosi
+
+# Path to a single .sos file
+sosi_path = "sample/roads.sos"
+
+# Parse to GeoDataFrame (includes CRS when KOORDSYS is present)
+gdf, metadata = read_sosi(sosi_path, return_metadata=True)
+
+# Write to GeoJSON
+gdf.to_file("sample/roads.geojson", driver="GeoJSON")
+```
+
+You’ll get a CRS-aware GeoDataFrame: KOORDSYS 22/23/25 map to EPSG 25832/25833/25835, ENHET scales coordinates, and mixed 2D/3D geometries are flattened to 2D.
