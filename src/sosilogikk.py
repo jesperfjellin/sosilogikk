@@ -22,35 +22,35 @@ logger.info(f"sosilogikk version: {__version__}")
 
 def read_sosi(filepath, return_metadata=False):
     """
-    Les en eller flere SOSI-filer og returner en GeoDataFrame.
+    Read one or more SOSI files and return a GeoDataFrame.
 
-    Dette er hovedfunksjonen for å laste SOSI-filer. Den håndterer automatisk
-    parsing, koordinattransformasjon og konvertering til GeoDataFrame.
+    This is the main entry point: it handles parsing, unit scaling, CRS mapping,
+    and conversion to a GeoDataFrame.
 
     Args:
-        filepath (str or list): Sti til en SOSI-fil, eller liste med stier til flere filer.
-        return_metadata (bool): Om metadata skal returneres sammen med GeoDataFrame.
+        filepath (str or list): Path to a SOSI file, or list of paths.
+        return_metadata (bool): Whether to also return header/extent metadata.
 
     Returns:
-        gpd.GeoDataFrame: GeoDataFrame med geometri og attributter fra SOSI-fil(ene).
-        dict (optional): Metadata hvis return_metadata=True. Inneholder:
-            - 'enhet_scale': float, enhetsskala fra ...ENHET
+        gpd.GeoDataFrame: GeoDataFrame with geometry and attributes from the SOSI file(s).
+        dict (optional): Metadata if return_metadata=True, containing:
+            - 'enhet_scale': float, unit scale from ...ENHET
             - 'extent': tuple (min_n, min_e, max_n, max_e)
-            - 'header': dict med VERT-DATUM, KOORDSYS, etc.
-            - 'sosi_index': dict, mapping av objekt ID til original context
-            - 'all_attributes': set med alle attributter
+            - 'header': dict with VERT-DATUM, KOORDSYS, etc.
+            - 'sosi_index': dict, mapping of object ID to original content
+            - 'all_attributes': set of all attributes
 
     Examples:
-        >>> # Les en enkelt fil
+        >>> # Read a single file
         >>> gdf = read_sosi('data.sos')
 
-        >>> # Les flere filer og kombiner dem
+        >>> # Read multiple files and combine them
         >>> gdf = read_sosi(['file1.sos', 'file2.sos'])
 
-        >>> # Les med metadata
+        >>> # Read with metadata
         >>> gdf, metadata = read_sosi('data.sos', return_metadata=True)
     """
-    # Håndter enkeltfil vs. liste av filer
+    # Handle single file vs list of files
     if isinstance(filepath, (str, os.PathLike)):
         filepaths = [filepath]
     else:
@@ -80,8 +80,8 @@ def read_sosi(filepath, return_metadata=False):
     )
 
     if return_metadata:
-        # Kombiner metadata fra alle filer
-        # For enkelhet, bruk metadata fra første fil for header info
+        # Combine metadata from all files
+        # For simplicity, use header metadata from the first file
         metadata = {
             'enhet_scale': scale_factors[0] if len(scale_factors) == 1 else scale_factors,
             'extent': extent,
@@ -96,25 +96,25 @@ def read_sosi(filepath, return_metadata=False):
 
 def write_sosi(gdf, output_filepath, metadata=None, use_index=True):
     """
-    Skriv en GeoDataFrame til en SOSI-fil.
+    Write a GeoDataFrame back to a SOSI file.
 
     Args:
-        gdf (gpd.GeoDataFrame): GeoDataFrame som skal skrives til SOSI-format.
-        output_filepath (str): Sti hvor SOSI-filen skal skrives.
-        metadata (dict, optional): Metadata fra read_sosi() med header info.
-                                   Hvis None, brukes standardverdier.
-        use_index (bool): Om SOSI-indeks skal brukes for skriving (standard True).
+        gdf (gpd.GeoDataFrame): GeoDataFrame to serialize to SOSI.
+        output_filepath (str): Path where the SOSI file will be written.
+        metadata (dict, optional): Metadata from read_sosi() with header info.
+                                   If None, defaults are used.
+        use_index (bool): Whether to reuse the original SOSI index (default True).
 
     Returns:
-        bool: True hvis filen ble skrevet vellykket, False ellers.
+        bool: True if writing succeeded, False otherwise.
 
     Examples:
-        >>> # Les, modifiser, og skriv tilbake
+        >>> # Read, modify, and write back
         >>> gdf, metadata = read_sosi('input.sos', return_metadata=True)
         >>> gdf['new_attribute'] = 'value'
         >>> write_sosi(gdf, 'output.sos', metadata=metadata)
     """
-    # Pakk ut metadata hvis det finnes
+    # Unpack metadata if present
     if metadata is not None:
         header_metadata = metadata.get('header', {})
         extent = metadata.get('extent', None)
@@ -141,32 +141,32 @@ def write_sosi(gdf, output_filepath, metadata=None, use_index=True):
 
 def _read_sosi_file(filepath):
     """
-    Leser en SOSI-fil og returnerer geometri, attributter, ...ENHET-verdi, og en indeks for hvert objekt.
+    Read a single SOSI file and return geometry, attributes, ...ENHET value, and an index per object.
 
     Args:
-        filepath (str): Sti til SOSI-fil.
+        filepath (str): Path to SOSI file.
 
     Returns:
-        dict: Dictionary med følgende nøkler:
-            - 'data': dict med 'geometry' og 'attributes'
-            - 'all_attributes': set med alle attributter
-            - 'enhet_scale': float, unit scale fra ...ENHET
-            - 'sosi_index': dict, mapping av objekt ID til original context
+        dict: With keys:
+            - 'data': dict with 'geometry' and 'attributes'
+            - 'all_attributes': set of all attributes
+            - 'enhet_scale': float, unit scale from ...ENHET
+            - 'sosi_index': dict, mapping of object ID to original context
             - 'extent': tuple (min_n, min_e, max_n, max_e)
-            - 'header_metadata': dict med VERT-DATUM, KOORDSYS, etc.
+            - 'header_metadata': dict with VERT-DATUM, KOORDSYS, etc.
     """
     
     parsed_data = {
-        'geometry': [],  # Geometrier (punkt, kurve, flate)
+        'geometry': [],  # Geometries (point, curve, polygon)
         'attributes': [] 
     }
-    enhet_scale = None  # ...ENHET verdi for innlest fil
-    sosi_index = {}  # Initialiserer SOSI index
-    all_attributes = set()  # Initialiserer set for alle attributter
-    current_object = []  # Midlertidig liste for å holde nåværende objekts egenskaper
-    object_id = 0  # Unik ID for hvert objekt
+    enhet_scale = None  # ...ENHET value for the file
+    sosi_index = {}  # SOSI index initialization
+    all_attributes = set()  # Collect all attribute names
+    current_object = []  # Temporary storage for current object's raw lines
+    object_id = 0  # Unique ID per object
 
-    # Andre variabler for å håndtere geometrier og attributter
+    # Working variables for geometry/attribute handling
     kurve_coordinates = {}  
     current_attributes = {}
     coordinates = []
@@ -199,7 +199,7 @@ def _read_sosi_file(filepath):
         # Add more mappings as needed
     }
 
-    # Default to UTF-8 for initial read to get TEGNSETT
+    # Default to UTF-8 for initial read to find TEGNSETT
     file_encoding = 'utf-8-sig'
     
     try:
@@ -344,7 +344,7 @@ def _read_sosi_file(filepath):
                                 max_n, max_e = map(float, attr_value.split())
                     continue
 
-                # Rest of the existing code for capturing attributes and coordinates
+                # Capture attributes and coordinates
                 if capturing:
                     current_object.append(line)
                     if stripped_line.startswith('..'):
@@ -438,16 +438,14 @@ def _read_sosi_file(filepath):
 
 def _convert_to_2d_if_mixed(coordinates, dimension):
     """
-    Konverterer blandete geometrier (geometri med både 2D- og 3D-koordinater) til ren 2D-geometri.
-    Dette er nødvendig for å laste geometrien inn i en GeoPandas GeoDataFrame, som krever 2D-geometri for å fungere korrekt.
+    Convert mixed geometries (2D and 3D) to 2D coordinates so GeoPandas can ingest them.
 
     Args:
-        coordinates (list): Liste over koordinater (som kan være 2D eller 3D).
-        dimension (int): Antall dimensjoner i geometrien (2 eller 3).
+        coordinates (list): Coordinates (2D or 3D).
+        dimension (int): Declared dimension (2 or 3).
 
     Returns:
-        list: En liste med 2D-koordinater (x, y) hvis det finnes blanding av 2D og 3D koordinater.
-              Returnerer 3D-koordinater (x, y, z) hvis geometrien har 3 dimensjoner.
+        list: 2D coordinates (x, y) when mixing occurs; otherwise 3D (x, y, z) if present.
     """
     has_2d = any(len(coord) == 2 for coord in coordinates)
     if has_2d:
@@ -462,15 +460,14 @@ def _convert_to_2d_if_mixed(coordinates, dimension):
     
 def _force_2d(geom):
     """
-    Fjerner Z-dimensjonen fra en geometritype som har 3D-koordinater, og konverterer geometrien til 2D.
-    Funksjonen støtter punkt, linje, og polygon-geometrier. Koordinatene blir også ombyttet slik at de returneres som (y, x).
+    Drop the Z dimension from a geometry and return a 2D version.
+    Supports Point, LineString, and Polygon; keeps x/y ordering.
 
     Args:
-        geom (shapely.geometry): Shapely-geometriobjekt som kan være et punkt, linje, eller polygon.
+        geom (shapely.geometry): Point, LineString, or Polygon.
 
     Returns:
-        shapely.geometry: Geometriobjekt konvertert til 2D med (x, y) koordinater.
-                         Returnerer originalgeometrien hvis den allerede er 2D.
+        shapely.geometry: 2D geometry (x, y); returns the input if already 2D.
     """
     if geom.has_z:
         if isinstance(geom, shapely.geometry.Point):
@@ -506,19 +503,19 @@ def _koordsys_to_epsg(koordsys):
 
 def _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors, header_metadatas=None):
     """
-    Konverterer parsede SOSI-data til en GeoDataFrame, og håndterer flere input-filer hvis gitt.
+    Convert parsed SOSI data to a GeoDataFrame, handling multiple input files.
 
     Args:
-        sosi_data_list (liste eller dict): Parsede SOSI-data med 'geometry' og 'attributes'.
-        all_attributes_list (liste eller sett): Sett med alle registrerte attributter.
-        scale_factors (liste eller float): Skaleringsfaktor(er) fra ...ENHET.
-        header_metadatas (liste eller dict, optional): Header metadata for hver fil.
+        sosi_data_list (list or dict): Parsed SOSI data with 'geometry' and 'attributes'.
+        all_attributes_list (list or set): Set of all seen attributes.
+        scale_factors (list or float): Scale factors from ...ENHET.
+        header_metadatas (list or dict, optional): Header metadata per file.
 
     Returns:
-        gpd.GeoDataFrame: GeoDataFrame som inneholder SOSI-dataene.
-        tuple: Totalt utstrekning (min_n, min_e, max_n, max_e).
+        gpd.GeoDataFrame: Combined GeoDataFrame.
+        tuple: Overall extent (min_n, min_e, max_n, max_e).
     """
-    # Sørger for at input SOSI-filer utgjør en liste, selv om det kun er en SOSI-fil som blir brukt
+    # Normalize inputs to lists even for a single file
     if not isinstance(sosi_data_list, list):
         sosi_data_list = [sosi_data_list]
         all_attributes_list = [all_attributes_list]
@@ -538,25 +535,25 @@ def _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors, he
         geometries = sosi_data['geometry']
         attributes = sosi_data['attributes']
 
-        # Sjekker om det er en mismatch mellom antall attributter og geometrier
+        # Guard against mismatched geometry/attribute counts
         if len(geometries) != len(attributes):
             print(f"SOSILOGIKK: Advarsel: mismatch funnet: {len(geometries)} geometrier, {len(attributes)} attributter")
             min_length = min(len(geometries), len(attributes))
             geometries = geometries[:min_length]
             attributes = attributes[:min_length]
 
-        # Anvender ...ENHET verdi (scale_factor) på geometri
+        # Apply ...ENHET scale factor
         scaled_geometries = _scale_geometries(geometries, scale_factor)
 
-        # Lager DataFrame fra attributter
+        # Build DataFrame from attributes
         df = pd.DataFrame(attributes)
 
-        # Sjekker at alle attributter er til stede i DataFrame
+        # Ensure all attributes exist as columns
         for attribute in all_attributes:
             if attribute not in df:
                 df[attribute] = np.nan
 
-        # Lager GeoDataFrame
+        # Build GeoDataFrame
         gdf = gpd.GeoDataFrame(df, geometry=scaled_geometries)
 
         epsg = None
@@ -566,7 +563,7 @@ def _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors, he
         if epsg:
             gdf.set_crs(epsg, inplace=True)
 
-        # Legger til 'original_id' kolonne i GeoDataFramen for å holde styr på den originale posisjonen til hvert geometriske objekt i de originale SOSI-filene
+        # Track original position for round-tripping
         gdf['original_id'] = range(len(gdf))
 
         gdfs.append(gdf)
@@ -578,7 +575,7 @@ def _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors, he
         overall_max_n = max(overall_max_n, max_n)
         overall_max_e = max(overall_max_e, max_e)
     
-    # Slår sammen alle GeoDataFrames
+    # Merge all GeoDataFrames
     combined_gdf = pd.concat(gdfs, ignore_index=True)
     unique_epsg = {epsg for epsg in epsg_list if epsg is not None}
     if len(unique_epsg) == 1:
@@ -590,14 +587,14 @@ def _sosi_to_geodataframe(sosi_data_list, all_attributes_list, scale_factors, he
 
 def _scale_geometries(geometries, scale_factor=1.0):
     """
-    Skalerer geometrier i henhold til den oppgitte skaleringsfaktoren.
+    Scale geometries by the provided factor.
 
     Args:
-        geometries (liste over shapely.geometry): Liste over geometrier som skal skaleres.
-        scale_factor (float): Skaleringsfaktoren som skal brukes på geometrier.
+        geometries (list of shapely.geometry): Geometries to scale.
+        scale_factor (float): Factor to apply.
 
     Returns:
-        liste over shapely.geometry: De skalerte geometrier.
+        list of shapely.geometry: Scaled geometries.
     """
     scaled_geometries = []
     
@@ -612,18 +609,18 @@ def _scale_geometries(geometries, scale_factor=1.0):
 
 def _write_geodataframe_to_sosi(gdf, output_file, metadata=None, sosi_index=None, extent=None, use_index=True):
     """
-    Skriver en GeoDataFrame tilbake til en SOSI-fil.
+    Write a GeoDataFrame back to a SOSI file.
 
     Args:
-        gdf (gpd.GeoDataFrame): GeoDataFrame som inneholder SOSI-data.
-        output_file (str): Sti der den nye SOSI-filen vil bli skrevet.
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing SOSI data.
+        output_file (str): Destination path.
         metadata (dict): Header metadata (VERT-DATUM, KOORDSYS, etc.).
-        sosi_index (dict, optional): Indeks som mapper objekt-IDer til original SOSI-innhold.
-        extent (tuple, optional): Utstrekningen av dataene (min_n, min_e, max_n, max_e).
-        use_index (bool, optional): Om SOSI-indeksen skal brukes for skriving (standard er True).
+        sosi_index (dict, optional): Mapping of object IDs to original SOSI content.
+        extent (tuple, optional): Data extent (min_n, min_e, max_n, max_e).
+        use_index (bool, optional): Whether to use the SOSI index for writing (default True).
 
     Returns:
-        bool: True hvis filen ble skrevet vellykket, False ellers.
+        bool: True if written successfully, False otherwise.
     """
     logger = logging.getLogger(__name__)
     logger.info(f"SOSILOGIKK: Skriver GeoDataFrame til SOSI-fil: {output_file}")
